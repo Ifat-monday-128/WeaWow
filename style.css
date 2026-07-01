@@ -37,11 +37,14 @@
 }
 
 html {
+  width: 100%;
   min-height: 100%;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   color: var(--text);
   font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif;
@@ -51,6 +54,12 @@ body {
   background-attachment: fixed;
   overflow-x: hidden;
   transition: color 250ms ease, background 700ms ease;
+}
+
+img,
+svg,
+canvas {
+  max-width: 100%;
 }
 
 body::before {
@@ -79,7 +88,7 @@ button {
   z-index: 2;
   width: min(1220px, 100%);
   margin: 0 auto;
-  padding: 16px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
 .topbar {
@@ -95,8 +104,13 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 16px;
+  min-width: 0;
   color: #fff;
   text-decoration: none;
+}
+
+.brand > span:last-child {
+  min-width: 0;
 }
 
 .brand-mark,
@@ -141,7 +155,7 @@ button {
 .brand strong {
   display: block;
   margin-top: 1px;
-  font-size: clamp(2rem, 5vw, 3.45rem);
+  font-size: clamp(1.9rem, 4vw, 3.45rem);
   font-weight: 950;
   line-height: 0.82;
   letter-spacing: 0;
@@ -219,6 +233,7 @@ button {
 .weather-dashboard {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .glass {
@@ -248,7 +263,7 @@ button {
   max-width: 14ch;
   margin: 5px 0 0;
   color: #fff;
-  font-size: clamp(2.3rem, 13vw, 6.4rem);
+  font-size: clamp(2.4rem, 8vw, 6.4rem);
   line-height: 0.9;
   letter-spacing: 0;
 }
@@ -281,6 +296,7 @@ button {
   flex: 1 1 auto;
   border: 0;
   outline: 0;
+  width: 100%;
   color: var(--text);
   background: transparent;
   padding: 12px 10px 12px 12px;
@@ -405,6 +421,7 @@ button {
   display: grid;
   gap: 26px;
   height: 100%;
+  min-width: 0;
 }
 
 .current-top {
@@ -412,13 +429,15 @@ button {
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
+  min-width: 0;
 }
 
 .city-name {
   margin: 6px 0 3px;
-  font-size: clamp(2rem, 9vw, 4.6rem);
+  font-size: clamp(2rem, 6vw, 4.6rem);
   line-height: 0.95;
   letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 
 .country,
@@ -441,7 +460,7 @@ button {
 
 .temperature {
   margin: 0;
-  font-size: clamp(3.4rem, 16vw, 8rem);
+  font-size: clamp(3.4rem, 10vw, 8rem);
   font-weight: 850;
   line-height: 0.88;
   letter-spacing: 0;
@@ -470,6 +489,7 @@ button {
 .forecast-grid {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .section-card,
@@ -483,6 +503,7 @@ button {
   justify-content: space-between;
   gap: 14px;
   margin-bottom: 14px;
+  min-width: 0;
 }
 
 .section-heading h2 {
@@ -494,7 +515,7 @@ button {
 .hourly-list {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: 112px;
+  grid-auto-columns: minmax(96px, 112px);
   gap: 10px;
   overflow-x: auto;
   padding-bottom: 5px;
@@ -706,7 +727,7 @@ button {
 
 .daily-item {
   display: grid;
-  grid-template-columns: minmax(92px, 1fr) auto minmax(90px, 160px);
+  grid-template-columns: minmax(0, 1fr) auto minmax(86px, 160px);
   align-items: center;
   gap: 12px;
   min-height: 64px;
@@ -760,6 +781,7 @@ button {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+  min-width: 0;
 }
 
 .mode-btn {
@@ -988,6 +1010,7 @@ button {
 .about-page {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .about-hero,
@@ -1007,7 +1030,7 @@ button {
 .about-hero h1 {
   max-width: 12ch;
   margin: 8px 0 14px;
-  font-size: clamp(3rem, 10vw, 7rem);
+  font-size: clamp(2.6rem, 8vw, 7rem);
   line-height: 0.86;
 }
 
@@ -1054,8 +1077,9 @@ button {
 
 .developer-info h2 {
   margin: 6px 0 8px;
-  font-size: clamp(2rem, 6vw, 4.8rem);
+  font-size: clamp(2rem, 5vw, 4.8rem);
   line-height: 0.92;
+  overflow-wrap: anywhere;
 }
 
 .developer-info p:not(.eyebrow) {
@@ -1320,11 +1344,11 @@ button {
 
 @media (min-width: 760px) {
   .app-shell {
-    padding: 22px;
+    padding: max(22px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left));
   }
 
   .hero-panel {
-    grid-template-columns: 1fr minmax(340px, 0.76fr);
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 0.76fr);
     align-items: end;
     padding: 28px;
   }
@@ -1338,16 +1362,18 @@ button {
     padding: 30px;
   }
 
+  .details-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 960px) {
   .forecast-grid {
-    grid-template-columns: minmax(0, 1.12fr) minmax(330px, 0.88fr);
+    grid-template-columns: minmax(0, 1.12fr) minmax(300px, 0.88fr);
   }
 
   .map-wrap {
     min-height: 460px;
-  }
-
-  .details-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -1358,8 +1384,17 @@ button {
 }
 
 @media (max-width: 720px) {
+  body {
+    background-attachment: scroll;
+  }
+
   .topbar {
     align-items: stretch;
+  }
+
+  .brand {
+    flex: 1 1 calc(100% - 66px);
+    gap: 12px;
   }
 
   .brand-mark {
@@ -1379,6 +1414,12 @@ button {
   .top-nav {
     order: 2;
     margin-left: 0;
+    width: 100%;
+  }
+
+  .top-nav a {
+    flex: 1 1 auto;
+    text-align: center;
   }
 
   .live-clock {
@@ -1388,7 +1429,7 @@ button {
   }
 
   .hero-copy h1 {
-    font-size: clamp(2.6rem, 17vw, 4.3rem);
+    font-size: clamp(2.6rem, 13vw, 4.3rem);
   }
 
   .search-box {
@@ -1416,7 +1457,7 @@ button {
   }
 
   .temperature {
-    font-size: clamp(4rem, 24vw, 6.4rem);
+    font-size: clamp(3.7rem, 18vw, 6.4rem);
   }
 
   .map-heading {
@@ -1471,13 +1512,63 @@ button {
   }
 
   .map-wrap {
-    min-height: 360px;
+    min-height: min(360px, 72dvh);
+  }
+}
+
+@media (max-width: 540px) {
+  .section-card,
+  .map-card {
+    padding: 14px;
+  }
+
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .daily-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .range-track {
+    grid-column: 1 / -1;
+  }
+
+  .about-hero h1 {
+    font-size: clamp(2.5rem, 12vw, 4.2rem);
   }
 }
 
 @media (max-width: 440px) {
   .app-shell {
-    padding: 12px;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .topbar {
+    gap: 10px;
+  }
+
+  .brand {
+    flex-basis: 100%;
+  }
+
+  .icon-button {
+    order: 2;
+    width: 44px;
+    height: 44px;
+    border-radius: 16px;
+  }
+
+  .top-nav {
+    width: auto;
+  }
+
+  .brand strong {
+    font-size: clamp(1.75rem, 9vw, 2rem);
+  }
+
+  .brand-kicker {
+    letter-spacing: 0.14em;
   }
 
   .hero-panel,
@@ -1488,10 +1579,6 @@ button {
     border-radius: 22px;
   }
 
-  .details-grid {
-    grid-template-columns: 1fr;
-  }
-
   .about-hero,
   .developer-card {
     border-radius: 22px;
@@ -1499,7 +1586,43 @@ button {
   }
 
   .map-wrap {
-    min-height: 330px;
+    min-height: min(330px, 68dvh);
     border-radius: 20px;
+  }
+}
+
+@media (max-width: 360px) {
+  .app-shell {
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+  }
+
+  .hero-panel,
+  .current-card,
+  .section-card,
+  .map-card {
+    padding: 12px;
+  }
+
+  .brand-mark {
+    width: 48px;
+    height: 48px;
+  }
+
+  .hero-copy h1 {
+    font-size: clamp(2.25rem, 12vw, 3.25rem);
+  }
+
+  .city-name {
+    font-size: clamp(1.85rem, 12vw, 2.8rem);
+  }
+
+  .temperature {
+    font-size: clamp(3.2rem, 18vw, 4.8rem);
+  }
+
+  .mode-btn,
+  .chip {
+    font-size: 0.8rem;
   }
 }
