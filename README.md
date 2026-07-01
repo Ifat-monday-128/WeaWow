@@ -16,7 +16,7 @@ Visit the published app:
 
 WeaWow is a static weather web app built with HTML, CSS, vanilla JavaScript, Leaflet, OpenStreetMap, Open-Meteo, and RainViewer. It focuses on a premium visual experience while keeping the code simple enough to run without a backend, build step, package manager, or API key.
 
-The app includes city search, current conditions, hourly and daily forecasts, a live clock, weather details, interactive map modes, radar support, animated weather effects, a realistic moon phase module, and a dedicated About page with developer credit.
+The app includes city search, current conditions, hourly and daily forecasts, a live clock, weather details, interactive map modes, radar support, animated weather effects, a realistic moon phase module, and a dedicated About page with developer credit .
 
 ## Highlights
 
