@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111827" />
+    <title>WeaWow | Futuristic Weather Dashboard</title>
+    <link rel="icon" href="app-icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="weather-effects" class="weather-effects" aria-hidden="true"></div>
+
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="WeaWow home">
+          <span class="brand-mark" aria-hidden="true">
+            <img src="app-icon.svg" alt="" />
+          </span>
+          <span>
+            <span class="brand-kicker">Live Sky Engine</span>
+            <strong>WeaWow</strong>
+          </span>
+        </a>
+
+        <nav class="top-nav" aria-label="Primary navigation">
+          <a href="about.html">About</a>
+        </nav>
+
+        <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch theme">
+          <span aria-hidden="true">☾</span>
+        </button>
+
+        <div id="live-clock" class="live-clock glass" aria-live="polite">
+          <span class="clock-time">--:--</span>
+          <span class="clock-date">Loading local time</span>
+        </div>
+      </header>
+
+      <main class="dashboard-shell">
+        <section class="hero-panel glass">
+          <div class="hero-copy">
+            <p class="eyebrow">Live forecast</p>
+            <h1>Weather that feels alive.</h1>
+          </div>
+
+          <form id="search-form" class="search-form">
+            <label class="sr-only" for="city-input">Search city</label>
+            <div class="search-box">
+              <input id="city-input" name="city" type="search" placeholder="Search Dhaka, Tokyo, London..." autocomplete="off" />
+              <button id="search-button" type="submit">Search</button>
+            </div>
+          </form>
+
+          <div class="quick-row">
+            <button id="location-button" class="ghost-button" type="button">Use my location</button>
+            <div class="recent-searches" aria-label="Recent searches">
+              <span>Recent</span>
+              <div id="recent-list" class="chip-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="status-message" class="status-card glass" aria-live="polite">
+          Search a city to begin.
+        </section>
+
+        <section id="dashboard" class="weather-dashboard hidden" aria-live="polite">
+          <div id="current-weather" class="current-card glass"></div>
+
+          <div class="forecast-grid">
+            <section id="hourly-forecast" class="section-card glass"></section>
+            <section id="daily-forecast" class="section-card glass"></section>
+          </div>
+
+          <section class="map-card glass">
+            <div class="section-heading map-heading">
+              <div>
+                <p class="eyebrow">Weather map</p>
+                <h2>Interactive weather map</h2>
+              </div>
+
+              <div class="mode-buttons" role="group" aria-label="Map weather mode">
+                <button class="mode-btn active" data-map-mode="standard" type="button">Standard Map</button>
+                <button class="mode-btn" data-map-mode="wind" type="button">Wind View</button>
+                <button class="mode-btn" data-map-mode="thermal" type="button">Thermal View</button>
+                <button class="mode-btn" data-map-mode="rain" type="button">Rain View</button>
+                <button class="mode-btn" data-map-mode="cloud" type="button">Cloud View</button>
+                <button class="mode-btn" data-map-mode="pressure" type="button">Pressure View</button>
+              </div>
+            </div>
+
+            <div class="map-wrap">
+              <div id="map" class="map"></div>
+              <canvas id="map-canvas" class="map-canvas" aria-hidden="true"></canvas>
+              <div id="map-overlay" class="map-overlay" aria-hidden="true"></div>
+            </div>
+          </section>
+
+          <section>
+            <div class="section-heading details-title">
+              <div>
+                <p class="eyebrow">Details</p>
+                <h2>Weather details</h2>
+              </div>
+            </div>
+            <div id="weather-details" class="details-grid"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>

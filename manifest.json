@@ -1,0 +1,17 @@
+{
+  "name": "WeaWow",
+  "short_name": "WeaWow",
+  "description": "A beginner-friendly weather app with current conditions and 7-day forecasts",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f4f7ff",
+  "theme_color": "#3b82f6",
+  "icons": [
+    {
+      "src": "./app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
