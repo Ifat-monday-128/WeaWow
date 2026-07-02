@@ -49,9 +49,19 @@
           <form id="search-form" class="search-form">
             <label class="sr-only" for="city-input">Search city</label>
             <div class="search-box">
-              <input id="city-input" name="city" type="search" placeholder="Search Dhaka, Tokyo, London..." autocomplete="off" />
+              <input
+                id="city-input"
+                name="city"
+                type="search"
+                placeholder="Search Dhaka, Tokyo, London..."
+                autocomplete="off"
+                aria-autocomplete="list"
+                aria-controls="location-suggestions"
+                aria-expanded="false"
+              />
               <button id="search-button" type="submit">Search</button>
             </div>
+            <div id="location-suggestions" class="location-suggestions" role="listbox"></div>
           </form>
 
           <div class="quick-row">

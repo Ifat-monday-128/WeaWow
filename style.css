@@ -293,6 +293,11 @@ button {
   background: rgba(255, 255, 255, 0.18);
 }
 
+.search-form {
+  display: grid;
+  gap: 8px;
+}
+
 .search-box input {
   min-width: 0;
   flex: 1 1 auto;
@@ -380,6 +385,54 @@ button {
 .empty-chip {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.location-suggestions {
+  display: none;
+  max-height: 310px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: rgba(8, 18, 34, 0.7);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 22px 60px rgba(3, 10, 24, 0.28);
+}
+
+.location-suggestions.visible {
+  display: grid;
+  gap: 6px;
+}
+
+.location-suggestion {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.location-suggestion:hover,
+.location-suggestion:focus-visible {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: var(--soft);
+  transform: translateY(-1px);
+}
+
+.location-suggestion span {
+  font-weight: 900;
+}
+
+.location-suggestion small {
+  color: var(--muted);
+  font-weight: 700;
 }
 
 .status-card {

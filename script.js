@@ -10,6 +10,7 @@ const dailyForecast = document.getElementById("daily-forecast");
 const weatherDetails = document.getElementById("weather-details");
 const themeToggle = document.getElementById("theme-toggle");
 const recentList = document.getElementById("recent-list");
+const locationSuggestions = document.getElementById("location-suggestions");
 const mapModeButtons = document.querySelectorAll(".mode-btn");
 const weatherEffects = document.getElementById("weather-effects");
 const mapOverlay = document.getElementById("map-overlay");
@@ -32,6 +33,8 @@ let currentWeatherData = null;
 let currentHourlyIndex = 0;
 let clockTimer = null;
 let mapAnimationFrame = null;
+let suggestionTimer = null;
+let suggestionAbortController = null;
 
 function initApp() {
   loadTheme();
@@ -47,7 +50,18 @@ function wireEvents() {
   // All buttons are connected in one place so beginners can find the app events quickly.
   searchForm.addEventListener("submit", (event) => {
     event.preventDefault();
+    hideLocationSuggestions();
     searchCity();
+  });
+
+  cityInput.addEventListener("input", handleSuggestionInput);
+  cityInput.addEventListener("focus", () => handleSuggestionInput());
+  cityInput.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideLocationSuggestions();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!searchForm.contains(event.target)) hideLocationSuggestions();
   });
 
   themeToggle.addEventListener("click", () => toggleTheme());
@@ -136,6 +150,122 @@ async function searchCity(cityName = cityInput.value) {
   } finally {
     hideLoading();
   }
+}
+
+function handleSuggestionInput() {
+  const query = cityInput.value.trim();
+
+  window.clearTimeout(suggestionTimer);
+
+  if (query.length < 2 || cityInput.disabled) {
+    hideLocationSuggestions();
+    return;
+  }
+
+  suggestionTimer = window.setTimeout(() => {
+    loadLocationSuggestions(query);
+  }, 260);
+}
+
+async function loadLocationSuggestions(query) {
+  if (suggestionAbortController) suggestionAbortController.abort();
+  suggestionAbortController = new AbortController();
+
+  try {
+    const suggestions = await fetchLocationSuggestions(query, suggestionAbortController.signal);
+
+    if (cityInput.value.trim().toLowerCase() !== query.toLowerCase()) return;
+
+    renderLocationSuggestions(suggestions, query);
+  } catch (error) {
+    if (error.name !== "AbortError") hideLocationSuggestions();
+  }
+}
+
+async function fetchLocationSuggestions(query, signal) {
+  const url = `${GEO_API_URL}?name=${encodeURIComponent(query)}&count=8&language=en&format=json`;
+  const response = await fetch(url, { signal });
+
+  if (!response.ok) return [];
+
+  const data = await response.json();
+  return data.results || [];
+}
+
+function renderLocationSuggestions(suggestions, query) {
+  const exactPrefixMatches = suggestions.filter((location) =>
+    location.name && location.name.toLowerCase().startsWith(query.toLowerCase())
+  );
+  const visibleSuggestions = exactPrefixMatches.length ? exactPrefixMatches : suggestions;
+
+  locationSuggestions.innerHTML = "";
+
+  if (!visibleSuggestions.length) {
+    hideLocationSuggestions();
+    return;
+  }
+
+  visibleSuggestions.forEach((location, index) => {
+    const button = document.createElement("button");
+    button.className = "location-suggestion";
+    button.type = "button";
+    button.setAttribute("role", "option");
+    button.id = `location-suggestion-${index}`;
+    button.innerHTML = `
+      <span>${escapeHtml(location.name)}</span>
+      <small>${escapeHtml(formatLocationMeta(location))}</small>
+    `;
+    button.addEventListener("click", () => selectLocationSuggestion(location));
+    locationSuggestions.appendChild(button);
+  });
+
+  locationSuggestions.classList.add("visible");
+  cityInput.setAttribute("aria-expanded", "true");
+}
+
+async function selectLocationSuggestion(location) {
+  cityInput.value = formatLocationName(location);
+  hideLocationSuggestions();
+  showLoading();
+
+  try {
+    const weatherData = await fetchWeather(location);
+
+    currentLocation = location;
+    currentWeatherData = weatherData;
+    currentHourlyIndex = findCurrentHourlyIndex(weatherData);
+
+    renderCurrentWeather(location, weatherData);
+    renderHourlyForecast(weatherData);
+    renderDailyForecast(weatherData);
+    renderWeatherDetails(weatherData);
+    updateMapLocation(location, weatherData);
+    updateWeatherAnimation(weatherData);
+    updateBackground(weatherData);
+    saveRecentSearch(location.name, location.country);
+    showSuccess(`Showing ${location.name}, ${location.country || "selected location"}.`);
+  } catch (error) {
+    showError(error.message || "Something went wrong while loading weather data.");
+  } finally {
+    hideLoading();
+  }
+}
+
+function hideLocationSuggestions() {
+  window.clearTimeout(suggestionTimer);
+  if (suggestionAbortController) suggestionAbortController.abort();
+  locationSuggestions.innerHTML = "";
+  locationSuggestions.classList.remove("visible");
+  cityInput.setAttribute("aria-expanded", "false");
+}
+
+function formatLocationName(location) {
+  return [location.name, location.admin1, location.country].filter(Boolean).join(", ");
+}
+
+function formatLocationMeta(location) {
+  const parts = [location.admin1, location.country].filter(Boolean);
+  return parts.length ? parts.join(", ") : "Location";
 }
 
 async function fetchCoordinates(cityName) {
