@@ -800,36 +800,43 @@ function getMapLegend(mode) {
 }
 
 function updateWeatherAnimation(weatherData) {
-  const current = weatherData.current;
-  const weatherInfo = getWeatherInfo(current.weather_code, current.is_day);
-  const condition = weatherInfo.condition;
-  const rainChance = weatherData.daily.precipitation_probability_max[0] || 0;
+  const scene = getWeatherScene(weatherData);
 
   weatherEffects.innerHTML = "";
+  document.documentElement.dataset.weatherScene = scene.condition;
 
-  if (condition === "clear") addSunGlow();
-  if (condition === "night") addStars();
-  if (condition === "cloudy") addFloatingClouds(current.cloud_cover);
-  if (condition === "rain" || rainChance > 65) addRainDrops();
-  if (condition === "storm") addLightning();
-  if (condition === "snow") addSnow();
-  if (condition === "fog") addFog();
+  if (scene.isDay && scene.condition !== "fog") addSunGlow(scene.condition);
+  if (!scene.isDay) addStars(scene.condition);
+  if (scene.cloudCover >= 20 || ["partly-cloudy", "overcast", "drizzle", "light-rain", "rain", "heavy-rain", "storm", "fog", "snow"].includes(scene.condition)) {
+    addFloatingClouds(scene.cloudCover, scene.condition);
+  }
+  if (scene.condition === "overcast") addSkyHaze("cloud-haze");
+  if (scene.condition === "drizzle") addDrizzleDrops();
+  if (["light-rain", "rain", "heavy-rain"].includes(scene.condition)) addRainDrops(scene.condition);
+  if (scene.condition === "storm") addLightning();
+  if (scene.condition === "snow") addSnow();
+  if (scene.condition === "fog") addFog();
 }
 
 function updateBackground(weatherData) {
-  const current = weatherData.current;
-  const weatherInfo = getWeatherInfo(current.weather_code, current.is_day);
-  const condition = weatherInfo.condition;
+  const scene = getWeatherScene(weatherData);
   const palettes = {
-    clear: ["#53b8f2", "#2875c8", "#f7d86f"],
-    night: ["#050816", "#1d2b60", "#6a7dbd"],
-    cloudy: ["#667588", "#9aa7b6", "#d7dde7"],
+    clear: ["#4cbdf5", "#2877cb", "#ffd66f"],
+    "clear-night": ["#050816", "#18255a", "#566fb8"],
+    "mainly-clear": ["#57b9ef", "#3f91d0", "#f4d57a"],
+    "mainly-clear-night": ["#071022", "#203264", "#7d8fd0"],
+    "partly-cloudy": ["#5fa7d4", "#7f9fb5", "#f0cf86"],
+    "partly-cloudy-night": ["#101827", "#33415f", "#8b98b9"],
+    overcast: ["#5f6e7c", "#8c99a5", "#d4dbe2"],
+    drizzle: ["#47667c", "#7794a9", "#bbcfdd"],
+    "light-rain": ["#314a61", "#637e95", "#9fc0d6"],
     rain: ["#1f3147", "#526a83", "#82a9c9"],
+    "heavy-rain": ["#101f32", "#405a73", "#6f95b5"],
     storm: ["#0b1020", "#27344d", "#77808f"],
     snow: ["#dfefff", "#9bb9d0", "#ffffff"],
     fog: ["#9aa7b1", "#c3ccd4", "#f0f4f7"]
   };
-  const palette = palettes[condition] || palettes.clear;
+  const palette = palettes[scene.condition] || palettes.clear;
 
   document.documentElement.style.setProperty("--bg-a", palette[0]);
   document.documentElement.style.setProperty("--bg-b", palette[1]);
@@ -1088,35 +1095,68 @@ function getRangePercent(value, min, max) {
 
 function getWeatherInfo(weatherCode, isDay = 1) {
   const weatherMap = {
-    0: { emoji: isDay ? "☀️" : "🌙", label: "Clear sky", condition: isDay ? "clear" : "night" },
-    1: { emoji: isDay ? "🌤️" : "🌙", label: "Mainly clear", condition: isDay ? "clear" : "night" },
-    2: { emoji: "⛅", label: "Partly cloudy", condition: "cloudy" },
-    3: { emoji: "☁️", label: "Overcast", condition: "cloudy" },
-    45: { emoji: "🌫️", label: "Fog", condition: "fog" },
-    48: { emoji: "🌫️", label: "Rime fog", condition: "fog" },
-    51: { emoji: "🌦️", label: "Light drizzle", condition: "rain" },
-    53: { emoji: "🌦️", label: "Drizzle", condition: "rain" },
-    55: { emoji: "🌧️", label: "Dense drizzle", condition: "rain" },
-    61: { emoji: "🌦️", label: "Light rain", condition: "rain" },
-    63: { emoji: "🌧️", label: "Rain", condition: "rain" },
-    65: { emoji: "🌧️", label: "Heavy rain", condition: "rain" },
-    66: { emoji: "🌧️", label: "Freezing rain", condition: "rain" },
-    67: { emoji: "🌧️", label: "Heavy freezing rain", condition: "rain" },
-    71: { emoji: "🌨️", label: "Light snow", condition: "snow" },
-    73: { emoji: "🌨️", label: "Snow", condition: "snow" },
-    75: { emoji: "❄️", label: "Heavy snow", condition: "snow" },
-    77: { emoji: "❄️", label: "Snow grains", condition: "snow" },
-    80: { emoji: "🌦️", label: "Rain showers", condition: "rain" },
-    81: { emoji: "🌧️", label: "Rain showers", condition: "rain" },
-    82: { emoji: "⛈️", label: "Violent showers", condition: "storm" },
-    85: { emoji: "🌨️", label: "Snow showers", condition: "snow" },
-    86: { emoji: "❄️", label: "Heavy snow showers", condition: "snow" },
-    95: { emoji: "⛈️", label: "Thunderstorm", condition: "storm" },
-    96: { emoji: "⛈️", label: "Thunderstorm with hail", condition: "storm" },
-    99: { emoji: "⛈️", label: "Severe thunderstorm", condition: "storm" }
+    0: { emoji: isDay ? "\u2600\uFE0F" : "\u{1F319}", label: "Clear sky", condition: isDay ? "clear" : "clear-night" },
+    1: { emoji: isDay ? "\u{1F324}\uFE0F" : "\u{1F319}", label: "Mainly clear", condition: isDay ? "mainly-clear" : "mainly-clear-night" },
+    2: { emoji: "\u26C5", label: "Partly cloudy", condition: isDay ? "partly-cloudy" : "partly-cloudy-night" },
+    3: { emoji: "\u2601\uFE0F", label: "Overcast", condition: "overcast" },
+    45: { emoji: "\u{1F32B}\uFE0F", label: "Fog", condition: "fog" },
+    48: { emoji: "\u{1F32B}\uFE0F", label: "Rime fog", condition: "fog" },
+    51: { emoji: "\u{1F326}\uFE0F", label: "Light drizzle", condition: "drizzle" },
+    53: { emoji: "\u{1F326}\uFE0F", label: "Drizzle", condition: "drizzle" },
+    55: { emoji: "\u{1F327}\uFE0F", label: "Dense drizzle", condition: "drizzle" },
+    61: { emoji: "\u{1F326}\uFE0F", label: "Light rain", condition: "light-rain" },
+    63: { emoji: "\u{1F327}\uFE0F", label: "Rain", condition: "rain" },
+    65: { emoji: "\u{1F327}\uFE0F", label: "Heavy rain", condition: "heavy-rain" },
+    66: { emoji: "\u{1F327}\uFE0F", label: "Freezing rain", condition: "rain" },
+    67: { emoji: "\u{1F327}\uFE0F", label: "Heavy freezing rain", condition: "heavy-rain" },
+    71: { emoji: "\u{1F328}\uFE0F", label: "Light snow", condition: "snow" },
+    73: { emoji: "\u{1F328}\uFE0F", label: "Snow", condition: "snow" },
+    75: { emoji: "\u2744\uFE0F", label: "Heavy snow", condition: "snow" },
+    77: { emoji: "\u2744\uFE0F", label: "Snow grains", condition: "snow" },
+    80: { emoji: "\u{1F326}\uFE0F", label: "Light rain showers", condition: "light-rain" },
+    81: { emoji: "\u{1F327}\uFE0F", label: "Rain showers", condition: "rain" },
+    82: { emoji: "\u26C8\uFE0F", label: "Violent showers", condition: "storm" },
+    85: { emoji: "\u{1F328}\uFE0F", label: "Snow showers", condition: "snow" },
+    86: { emoji: "\u2744\uFE0F", label: "Heavy snow showers", condition: "snow" },
+    95: { emoji: "\u26C8\uFE0F", label: "Thunderstorm", condition: "storm" },
+    96: { emoji: "\u26C8\uFE0F", label: "Thunderstorm with hail", condition: "storm" },
+    99: { emoji: "\u26C8\uFE0F", label: "Severe thunderstorm", condition: "storm" }
   };
 
-  return weatherMap[weatherCode] || { emoji: "🌈", label: "Changing weather", condition: "clear" };
+  return weatherMap[weatherCode] || { emoji: "\u{1F308}", label: "Changing weather", condition: isDay ? "mainly-clear" : "mainly-clear-night" };
+}
+
+function getWeatherScene(weatherData) {
+  const current = weatherData.current || {};
+  const hourly = weatherData.hourly || {};
+  const daily = weatherData.daily || {};
+  const info = getWeatherInfo(current.weather_code, current.is_day);
+  const hourlyRainChance = hourly.precipitation_probability?.[currentHourlyIndex];
+  const cloudCover = Math.round(current.cloud_cover ?? hourly.cloud_cover?.[currentHourlyIndex] ?? 0);
+  const currentPrecipitation = Math.max(Number(current.precipitation || 0), Number(current.rain || 0));
+  const rainProbability = hourlyRainChance ?? daily.precipitation_probability_max?.[0] ?? 0;
+  let condition = info.condition;
+
+  if (condition === "mainly-clear" && cloudCover >= 55) condition = "partly-cloudy";
+  if (condition === "mainly-clear-night" && cloudCover >= 55) condition = "partly-cloudy-night";
+  if (["clear", "mainly-clear", "clear-night", "mainly-clear-night"].includes(condition) && cloudCover >= 82) {
+    condition = "overcast";
+  }
+
+  if (!["drizzle", "light-rain", "rain", "heavy-rain", "storm", "snow"].includes(condition)) {
+    if (currentPrecipitation >= 1.5) condition = "rain";
+    else if (currentPrecipitation >= 0.2) condition = "light-rain";
+    else if (rainProbability >= 85 && cloudCover >= 80) condition = "overcast";
+  }
+
+  return {
+    ...info,
+    condition,
+    cloudCover,
+    rainProbability,
+    currentPrecipitation,
+    isDay: Number(current.is_day) === 1
+  };
 }
 
 function getWindDirection(degrees = 0) {
@@ -1229,14 +1269,17 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function addSunGlow() {
+function addSunGlow(condition = "clear") {
   const sun = document.createElement("div");
   sun.className = "sun-glow";
+  if (condition === "partly-cloudy") sun.classList.add("sun-glow-soft");
+  if (condition === "overcast") sun.classList.add("sun-glow-muted");
   weatherEffects.appendChild(sun);
 }
 
-function addStars() {
-  for (let index = 0; index < 70; index += 1) {
+function addStars(condition = "clear-night") {
+  const count = condition === "partly-cloudy-night" ? 32 : 70;
+  for (let index = 0; index < count; index += 1) {
     const star = document.createElement("span");
     star.className = "star";
     star.style.left = `${Math.random() * 100}%`;
@@ -1246,11 +1289,15 @@ function addStars() {
   }
 }
 
-function addFloatingClouds(cloudCover = 50) {
-  const count = Math.max(4, Math.ceil(cloudCover / 22));
+function addFloatingClouds(cloudCover = 50, condition = "partly-cloudy") {
+  const baseCount = condition === "overcast" || condition === "fog" ? 9 : 4;
+  const count = Math.min(11, Math.max(baseCount, Math.ceil(cloudCover / 18)));
   for (let index = 0; index < count; index += 1) {
     const cloud = document.createElement("span");
     cloud.className = "cloud-float";
+    if (condition === "partly-cloudy" || condition === "partly-cloudy-night") cloud.classList.add("cloud-float-light");
+    if (condition === "overcast" || condition === "fog") cloud.classList.add("cloud-float-heavy");
+    if (["drizzle", "light-rain", "rain", "heavy-rain", "storm"].includes(condition)) cloud.classList.add("cloud-float-wet");
     cloud.style.left = `${-30 + index * 16}%`;
     cloud.style.top = `${10 + (index % 4) * 17}%`;
     cloud.style.animationDelay = `${index * -2.4}s`;
@@ -1259,10 +1306,32 @@ function addFloatingClouds(cloudCover = 50) {
   }
 }
 
-function addRainDrops() {
-  for (let index = 0; index < 120; index += 1) {
+function addSkyHaze(className) {
+  const haze = document.createElement("div");
+  haze.className = className;
+  weatherEffects.appendChild(haze);
+}
+
+function addDrizzleDrops() {
+  addSkyHaze("drizzle-mist");
+  for (let index = 0; index < 55; index += 1) {
+    const drop = document.createElement("span");
+    drop.className = "drizzle-drop";
+    drop.style.left = `${Math.random() * 100}%`;
+    drop.style.top = `${Math.random() * 100}%`;
+    drop.style.animationDelay = `${Math.random() * -2.8}s`;
+    drop.style.animationDuration = `${1.8 + Math.random() * 1.6}s`;
+    weatherEffects.appendChild(drop);
+  }
+}
+
+function addRainDrops(condition = "rain") {
+  const count = condition === "heavy-rain" ? 170 : condition === "light-rain" ? 76 : 120;
+  for (let index = 0; index < count; index += 1) {
     const drop = document.createElement("span");
     drop.className = "rain-drop";
+    if (condition === "light-rain") drop.classList.add("rain-drop-light");
+    if (condition === "heavy-rain") drop.classList.add("rain-drop-heavy");
     drop.style.left = `${Math.random() * 100}%`;
     drop.style.top = `${Math.random() * 100}%`;
     drop.style.animationDelay = `${Math.random() * -1.5}s`;
@@ -1275,7 +1344,8 @@ function addLightning() {
   const lightning = document.createElement("div");
   lightning.className = "lightning";
   weatherEffects.appendChild(lightning);
-  addRainDrops();
+  addSkyHaze("storm-shelf");
+  addRainDrops("heavy-rain");
 }
 
 function addSnow() {
