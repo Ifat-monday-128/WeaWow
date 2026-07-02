@@ -1001,7 +1001,7 @@ button {
   transform: translate(-50%, -50%);
   animation: pressurePulse 2.4s ease-out infinite;
 }
-
+/* ifat */
 .pressure-card {
   right: 14px;
   bottom: 14px;
