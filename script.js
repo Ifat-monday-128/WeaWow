@@ -1,5 +1,6 @@
 const searchForm = document.getElementById("search-form");
 const cityInput = document.getElementById("city-input");
+const clearSearchButton = document.getElementById("clear-search");
 const searchButton = document.getElementById("search-button");
 const locationButton = document.getElementById("location-button");
 const statusMessage = document.getElementById("status-message");
@@ -21,6 +22,19 @@ const GEO_API_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const REVERSE_GEO_API_URL = "https://geocoding-api.open-meteo.com/v1/reverse";
 const FORECAST_API_URL = "https://api.open-meteo.com/v1/forecast";
 const IP_LOCATION_API_URL = "https://ipapi.co/json/";
+const IP_LOCATION_FALLBACK_URL = "https://ipwho.is/";
+const WEATHER_MAP_CURRENT_VARIABLES = [
+  "temperature_2m",
+  "precipitation",
+  "rain",
+  "weather_code",
+  "cloud_cover",
+  "pressure_msl",
+  "wind_speed_10m",
+  "wind_direction_10m"
+];
+const WEATHER_MAP_GRID_SIZE = 5;
+const WEATHER_MAP_CACHE_MS = 8 * 60 * 1000;
 const RECENT_SEARCHES_KEY = "weawow-recent-searches";
 const THEME_KEY = "weawow-theme";
 
@@ -35,6 +49,8 @@ let clockTimer = null;
 let mapAnimationFrame = null;
 let suggestionTimer = null;
 let suggestionAbortController = null;
+let mapRenderVersion = 0;
+let weatherMapFieldCache = new Map();
 
 function initApp() {
   loadTheme();
@@ -59,6 +75,7 @@ function wireEvents() {
   cityInput.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideLocationSuggestions();
   });
+  clearSearchButton.addEventListener("click", clearSearchInput);
 
   document.addEventListener("click", (event) => {
     if (!searchForm.contains(event.target)) hideLocationSuggestions();
@@ -135,6 +152,8 @@ async function searchCity(cityName = cityInput.value) {
     currentLocation = location;
     currentWeatherData = weatherData;
     currentHourlyIndex = findCurrentHourlyIndex(weatherData);
+    cityInput.value = formatLocationName(location);
+    updateClearSearchButton();
 
     renderCurrentWeather(location, weatherData);
     renderHourlyForecast(weatherData);
@@ -156,6 +175,7 @@ function handleSuggestionInput() {
   const query = cityInput.value.trim();
 
   window.clearTimeout(suggestionTimer);
+  updateClearSearchButton();
 
   if (query.length < 2 || cityInput.disabled) {
     hideLocationSuggestions();
@@ -225,6 +245,7 @@ function renderLocationSuggestions(suggestions, query) {
 
 async function selectLocationSuggestion(location) {
   cityInput.value = formatLocationName(location);
+  updateClearSearchButton();
   hideLocationSuggestions();
   showLoading();
 
@@ -257,6 +278,17 @@ function hideLocationSuggestions() {
   locationSuggestions.innerHTML = "";
   locationSuggestions.classList.remove("visible");
   cityInput.setAttribute("aria-expanded", "false");
+}
+
+function clearSearchInput() {
+  cityInput.value = "";
+  updateClearSearchButton();
+  hideLocationSuggestions();
+  cityInput.focus();
+}
+
+function updateClearSearchButton() {
+  clearSearchButton.hidden = !cityInput.value.trim();
 }
 
 function formatLocationName(location) {
@@ -679,139 +711,167 @@ function scheduleMapModeUpdate() {
 async function renderMapMode() {
   if (!mapOverlay || !mapCanvas || !map || !currentLocation || !currentWeatherData) return;
 
+  const renderVersion = ++mapRenderVersion;
+  const mode = activeMapMode;
+  const fallbackField = createLocalWeatherMapField();
+
   clearMapLayer();
   mapOverlay.innerHTML = "";
 
-  if (activeMapMode === "standard") {
+  if (mode === "standard") {
     addOverlayLabel("Standard Map", "OpenStreetMap with your selected location marker.");
     return;
   }
 
-  if (activeMapMode === "rain") {
-    renderWeatherCanvas("rain");
-    addOverlayLabel("Rain View", "Live radar tiles where coverage is available, plus local precipitation chance.");
-    addMapLegend("Light", "Heavy", "linear-gradient(90deg, rgba(62, 186, 255, 0.35), #3bb2ff, #7f52ff, #ff3b81)");
-    await showRadarLayer();
-    return;
+  renderWeatherCanvas(mode, fallbackField);
+  addOverlayLabel(getMapModeTitle(mode), getMapModeDescription(mode, fallbackField));
+  addMapLegend(...getMapLegend(mode, fallbackField));
+  if (mode === "wind") renderWindOverlay(fallbackField);
+  if (mode === "pressure") renderPressureOverlay(fallbackField);
+  if (mode === "rain") showRadarLayer(renderVersion);
+
+  try {
+    const field = await fetchWeatherMapField();
+
+    if (renderVersion !== mapRenderVersion || activeMapMode !== mode) return;
+
+    mapOverlay.innerHTML = "";
+    renderWeatherCanvas(mode, field);
+    addOverlayLabel(getMapModeTitle(mode), getMapModeDescription(mode, field));
+    addMapLegend(...getMapLegend(mode, field));
+
+    if (mode === "wind") renderWindOverlay(field);
+    if (mode === "pressure") renderPressureOverlay(field);
+  } catch (error) {
+    // The current-location layer stays visible if the live map field is unavailable.
   }
-
-  renderWeatherCanvas(activeMapMode);
-  addOverlayLabel(getMapModeTitle(activeMapMode), getMapModeDescription(activeMapMode));
-  addMapLegend(...getMapLegend(activeMapMode));
-
-  if (activeMapMode === "wind") renderWindOverlay();
-  if (activeMapMode === "pressure") renderPressureOverlay();
 }
 
-function renderWeatherCanvas(mode) {
+function renderWeatherCanvas(mode, field = createLocalWeatherMapField()) {
   const rect = mapCanvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const width = Math.max(1, Math.floor(rect.width));
   const height = Math.max(1, Math.floor(rect.height));
   const center = getCityPoint();
   const context = mapCanvas.getContext("2d");
+  const projectedField = projectWeatherMapField(field);
 
   mapCanvas.width = Math.floor(width * dpr);
   mapCanvas.height = Math.floor(height * dpr);
+  mapCanvas.style.opacity = getMapCanvasOpacity(mode);
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   context.clearRect(0, 0, width, height);
 
-  if (mode === "wind") renderWindField(context, width, height);
-  if (mode === "thermal") renderHeatField(context, width, height, center);
-  if (mode === "rain") renderRainField(context, width, height, center);
-  if (mode === "cloud") renderCloudField(context, width, height);
-  if (mode === "pressure") renderPressureField(context, width, height, center);
+  if (mode === "wind") renderWindField(context, width, height, projectedField);
+  if (mode === "thermal") renderHeatField(context, width, height, projectedField);
+  if (mode === "rain") renderRainField(context, width, height, projectedField, center);
+  if (mode === "cloud") renderCloudField(context, width, height, projectedField);
+  if (mode === "pressure") renderPressureField(context, width, height, projectedField, center);
 }
 
-function renderWindField(context, width, height) {
-  const speed = currentWeatherData.current.wind_speed_10m || 0;
-  const direction = currentWeatherData.current.wind_direction_10m || 0;
-  const radians = ((direction - 90) * Math.PI) / 180;
-  const spacing = Math.max(42, 78 - speed);
-
-  context.globalAlpha = 0.9;
+function renderWindField(context, width, height, field) {
+  renderScalarField(context, width, height, field, "windSpeed", getWindColor, 0.42);
   context.lineWidth = 2;
-  context.strokeStyle = "rgba(180, 232, 255, 0.86)";
-  context.fillStyle = "rgba(180, 232, 255, 0.86)";
+  context.shadowColor = "rgba(13, 25, 50, 0.28)";
+  context.shadowBlur = 6;
 
-  for (let y = -spacing; y < height + spacing; y += spacing) {
-    for (let x = -spacing; x < width + spacing; x += spacing) {
-      const wave = Math.sin((x + y) / 90) * 12;
-      drawWindArrow(context, x + wave, y - wave, radians, 18 + Math.min(speed, 46));
-    }
-  }
+  field.samples.forEach((sample) => {
+    if (!isFinitePoint(sample)) return;
+    const speed = sample.windSpeed || 0;
+    const direction = sample.windDirection || 0;
+    const flowRadians = ((direction + 90) * Math.PI) / 180;
+    const length = 18 + Math.min(34, speed * 1.25);
+    const color = getWindColor(speed, field.ranges.windSpeed.min, field.ranges.windSpeed.max, 0.92);
+
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    drawWindArrow(context, sample.x, sample.y, flowRadians, length);
+  });
+
+  context.shadowBlur = 0;
 }
 
-function renderHeatField(context, width, height, center) {
-  const temp = currentWeatherData.current.temperature_2m || 0;
-  const radius = Math.max(width, height) * 0.55;
-  const gradient = context.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius);
-
-  if (temp >= 30) {
-    gradient.addColorStop(0, "rgba(255, 84, 68, 0.72)");
-    gradient.addColorStop(0.45, "rgba(255, 188, 73, 0.35)");
-  } else if (temp >= 18) {
-    gradient.addColorStop(0, "rgba(255, 215, 100, 0.58)");
-    gradient.addColorStop(0.45, "rgba(255, 139, 86, 0.28)");
-  } else {
-    gradient.addColorStop(0, "rgba(89, 198, 255, 0.66)");
-    gradient.addColorStop(0.45, "rgba(98, 118, 255, 0.28)");
-  }
-
-  gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, width, height);
+function renderHeatField(context, width, height, field) {
+  renderScalarField(context, width, height, field, "temperature", getTemperatureColor, 0.54);
 }
 
-function renderRainField(context, width, height, center) {
+function renderRainField(context, width, height, field, center) {
   const rainChance = currentWeatherData.daily.precipitation_probability_max[0] || 0;
   const rainAmount = currentWeatherData.current.rain || currentWeatherData.current.precipitation || 0;
-  const intensity = Math.min(1, Math.max(rainChance / 100, rainAmount / 12));
+  const fieldMax = field.ranges.rain.max || 0;
+  const intensity = Math.min(1, Math.max(rainChance / 100, rainAmount / 12, fieldMax / 8));
   const gradient = context.createRadialGradient(center.x, center.y, 0, center.x, center.y, Math.max(width, height) * 0.6);
 
-  gradient.addColorStop(0, `rgba(43, 148, 255, ${0.24 + intensity * 0.45})`);
-  gradient.addColorStop(0.5, `rgba(91, 61, 255, ${0.12 + intensity * 0.22})`);
+  renderScalarField(context, width, height, field, "rain", getRainColor, 0.38);
+  gradient.addColorStop(0, `rgba(43, 148, 255, ${0.14 + intensity * 0.24})`);
+  gradient.addColorStop(0.5, `rgba(91, 61, 255, ${0.08 + intensity * 0.12})`);
   gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, width, height);
 }
 
-function renderCloudField(context, width, height) {
-  const cover = currentWeatherData.current.cloud_cover || 0;
-  const count = Math.max(9, Math.ceil(cover / 4));
+function renderCloudField(context, width, height, field) {
+  renderScalarField(context, width, height, field, "cloudCover", getCloudColor, 0.72);
 
-  context.filter = "blur(6px)";
-  for (let index = 0; index < count; index += 1) {
-    const x = ((index * 131) % (width + 220)) - 110;
-    const y = ((index * 67) % (height + 120)) - 60;
-    const radius = 56 + (index % 5) * 18;
-    const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
-
-    gradient.addColorStop(0, `rgba(245, 250, 255, ${0.18 + cover / 260})`);
-    gradient.addColorStop(1, "rgba(245, 250, 255, 0)");
-    context.fillStyle = gradient;
-    context.beginPath();
-    context.arc(x, y, radius, 0, Math.PI * 2);
-    context.fill();
-  }
-  context.filter = "none";
+  field.samples.forEach((sample, index) => {
+    if (!isFinitePoint(sample) || sample.cloudCover < 35) return;
+    const radius = 34 + sample.cloudCover * 0.9;
+    drawCloudPatch(context, sample.x + (index % 2) * 12, sample.y, radius, 0.14 + sample.cloudCover / 240);
+  });
 }
 
-function renderPressureField(context, width, height, center) {
-  const pressure = currentWeatherData.current.pressure_msl || 1013;
-  const isHigh = pressure >= 1013;
+function renderPressureField(context, width, height, field, center) {
+  renderScalarField(context, width, height, field, "pressure", getPressureColor, 0.48);
 
-  context.strokeStyle = isHigh ? "rgba(255, 238, 155, 0.78)" : "rgba(141, 215, 255, 0.78)";
-  context.lineWidth = 2;
-  context.setLineDash([12, 9]);
+  const high = getExtremeSample(field.samples, "pressure", "max");
+  const low = getExtremeSample(field.samples, "pressure", "min");
+  const fallbackPressureSample = {
+    ...(getCurrentLocationSample() || {}),
+    x: center.x,
+    y: center.y
+  };
 
-  for (let index = 0; index < 7; index += 1) {
-    context.beginPath();
-    context.arc(center.x, center.y, 80 + index * 58, 0, Math.PI * 2);
-    context.stroke();
+  drawPressureSystem(context, high || fallbackPressureSample, "H", "rgba(255, 235, 145, 0.92)");
+  if (low && (!high || Math.abs(low.pressure - high.pressure) >= 1)) {
+    drawPressureSystem(context, low, "L", "rgba(120, 205, 255, 0.92)");
   }
 
   context.setLineDash([]);
+}
+
+function renderScalarField(context, width, height, field, valueKey, colorGetter, alphaScale = 0.68) {
+  const range = field.ranges[valueKey] || { min: 0, max: 1 };
+  const radius = Math.max(width, height) / 3.2;
+
+  context.save();
+  context.globalCompositeOperation = "source-over";
+  context.filter = "blur(10px)";
+
+  field.samples.forEach((sample) => {
+    const value = sample[valueKey];
+    if (!Number.isFinite(value) || !isFinitePoint(sample)) return;
+
+    const gradient = context.createRadialGradient(sample.x, sample.y, 0, sample.x, sample.y, radius);
+    gradient.addColorStop(0, colorGetter(value, range.min, range.max, alphaScale));
+    gradient.addColorStop(0.55, colorGetter(value, range.min, range.max, alphaScale * 0.42));
+    gradient.addColorStop(1, colorGetter(value, range.min, range.max, 0));
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+  });
+
+  context.restore();
+}
+
+function getMapCanvasOpacity(mode) {
+  const opacities = {
+    wind: "0.62",
+    thermal: "0.64",
+    rain: "0.58",
+    cloud: "0.76",
+    pressure: "0.74"
+  };
+
+  return opacities[mode] || "0.78";
 }
 
 function drawWindArrow(context, x, y, radians, length) {
@@ -831,10 +891,47 @@ function drawWindArrow(context, x, y, radians, length) {
   context.fill();
 }
 
-function renderWindOverlay() {
-  const current = currentWeatherData.current;
-  const speed = Math.round(current.wind_speed_10m || 0);
-  const direction = current.wind_direction_10m || 0;
+function drawCloudPatch(context, x, y, radius, opacity) {
+  context.save();
+  context.filter = "blur(4px)";
+  context.fillStyle = `rgba(245, 250, 255, ${opacity})`;
+  context.beginPath();
+  context.ellipse(x - radius * 0.34, y + radius * 0.05, radius * 0.56, radius * 0.34, 0, 0, Math.PI * 2);
+  context.ellipse(x, y - radius * 0.1, radius * 0.64, radius * 0.42, 0, 0, Math.PI * 2);
+  context.ellipse(x + radius * 0.38, y + radius * 0.08, radius * 0.52, radius * 0.32, 0, 0, Math.PI * 2);
+  context.fill();
+  context.restore();
+}
+
+function drawPressureSystem(context, sample, label, color) {
+  if (!sample || !isFinitePoint(sample)) return;
+
+  context.save();
+  context.strokeStyle = color;
+  context.fillStyle = color;
+  context.lineWidth = 2;
+  context.setLineDash([12, 8]);
+
+  for (let index = 0; index < 5; index += 1) {
+    context.beginPath();
+    context.ellipse(sample.x, sample.y, 90 + index * 54, 58 + index * 38, index * 0.18, 0, Math.PI * 2);
+    context.stroke();
+  }
+
+  context.setLineDash([]);
+  context.font = "900 34px Inter, Arial, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.shadowColor = "rgba(0, 0, 0, 0.28)";
+  context.shadowBlur = 12;
+  context.fillText(label, sample.x, sample.y);
+  context.restore();
+}
+
+function renderWindOverlay(field) {
+  const selected = getSelectedWeatherSample(field);
+  const speed = Math.round(selected.windSpeed || 0);
+  const direction = selected.windDirection || 0;
   const compass = document.createElement("div");
 
   compass.className = "wind-compass";
@@ -842,15 +939,43 @@ function renderWindOverlay() {
     <div class="compass-arrow" style="transform: rotate(${direction}deg)"></div>
     <div class="compass-value">${Math.round(direction)}°</div>
   `;
+  compass.querySelector(".compass-value").textContent = `${speed} km/h`;
   mapOverlay.appendChild(compass);
+  renderWindFlow(field);
 }
 
-function renderPressureOverlay() {
-  const pressure = currentWeatherData.current.pressure_msl || 1013;
+function renderWindFlow(field) {
+  const visibleSamples = field.samples.filter(isFinitePoint);
+  const flowSamples = visibleSamples.length ? visibleSamples : [getSelectedWeatherSample(field)];
+
+  flowSamples.slice(0, 18).forEach((sample, index) => {
+    if (!isFinitePoint(sample)) return;
+
+    const speed = Math.max(4, sample.windSpeed || 0);
+    const direction = sample.windDirection || 0;
+    const flow = document.createElement("span");
+    const laneOffset = ((index % 5) - 2) * 13;
+    const duration = Math.max(1.15, 3.2 - speed / 18);
+
+    flow.className = "wind-flow";
+    flow.style.left = `${sample.x}px`;
+    flow.style.top = `${sample.y + laneOffset}px`;
+    flow.style.setProperty("--wind-rotation", `${direction + 90}deg`);
+    flow.style.setProperty("--wind-duration", `${duration}s`);
+    flow.style.animationDelay = `${(index % 6) * -0.32}s`;
+    flow.style.opacity = `${Math.min(0.82, 0.36 + speed / 70)}`;
+    mapOverlay.appendChild(flow);
+  });
+}
+
+function renderPressureOverlay(field) {
+  const selected = getSelectedWeatherSample(field);
+  const pressure = selected.pressure || 1013;
+  const range = field.ranges.pressure;
   const card = document.createElement("div");
 
   card.className = "pressure-card";
-  card.innerHTML = `${Math.round(pressure)} hPa<br><small>${getPressureLabel(pressure)}</small>`;
+  card.innerHTML = `${Math.round(pressure)} hPa<br><small>${getPressureLabel(pressure)}</small><small>${Math.round(range.min)}-${Math.round(range.max)} hPa map range</small>`;
   mapOverlay.appendChild(card);
 }
 
@@ -864,7 +989,7 @@ function clearMapLayer() {
   }
 }
 
-async function showRadarLayer() {
+async function showRadarLayer(renderVersion) {
   try {
     const response = await fetch("https://api.rainviewer.com/public/weather-maps.json");
     if (!response.ok) return;
@@ -873,9 +998,14 @@ async function showRadarLayer() {
     const frames = data.radar && data.radar.past;
     const latestFrame = frames && frames[frames.length - 1];
     if (!latestFrame) return;
+    if (renderVersion !== mapRenderVersion || activeMapMode !== "rain") return;
 
     radarLayer = L.tileLayer(`${data.host}${latestFrame.path}/256/{z}/{x}/{y}/4/1_1.png`, {
       opacity: 0.68,
+      maxNativeZoom: 7,
+      maxZoom: 19,
+      tileSize: 256,
+      keepBuffer: 2,
       pane: "overlayPane",
       attribution: "Radar: RainViewer"
     }).addTo(map);
@@ -895,10 +1025,283 @@ function addMapLegend(leftText, rightText, gradient) {
   mapOverlay.appendChild(legend);
 }
 
+async function fetchWeatherMapField() {
+  const locations = buildWeatherMapSampleLocations();
+  const cacheKey = getWeatherMapFieldCacheKey(locations);
+  const cachedField = weatherMapFieldCache.get(cacheKey);
+
+  if (cachedField && Date.now() - cachedField.fetchedAt < WEATHER_MAP_CACHE_MS) {
+    return cachedField;
+  }
+
+  const params = new URLSearchParams({
+    latitude: locations.map((location) => location.latitude.toFixed(4)).join(","),
+    longitude: locations.map((location) => location.longitude.toFixed(4)).join(","),
+    current: WEATHER_MAP_CURRENT_VARIABLES.join(","),
+    forecast_days: "1"
+  });
+  const response = await fetchWithTimeout(`${FORECAST_API_URL}?${params.toString()}`, {}, 12000);
+
+  if (!response.ok) {
+    throw new Error("Weather map field could not be loaded.");
+  }
+
+  const payload = await response.json();
+  const responses = Array.isArray(payload) ? payload : [payload];
+  const samples = responses
+    .map((entry, index) => createWeatherMapSample(locations[index], entry.current || {}))
+    .filter(Boolean);
+  const currentSample = getCurrentLocationSample();
+
+  if (currentSample) samples.push(currentSample);
+
+  const field = {
+    samples,
+    fetchedAt: Date.now(),
+    source: "Open-Meteo"
+  };
+
+  field.ranges = getWeatherMapRanges(field.samples);
+  weatherMapFieldCache.set(cacheKey, field);
+  trimWeatherMapFieldCache();
+
+  return field;
+}
+
+function buildWeatherMapSampleLocations() {
+  const rect = mapCanvas.getBoundingClientRect();
+  const width = Math.max(1, Math.floor(rect.width));
+  const height = Math.max(1, Math.floor(rect.height));
+  const locations = [];
+
+  for (let row = 0; row < WEATHER_MAP_GRID_SIZE; row += 1) {
+    for (let column = 0; column < WEATHER_MAP_GRID_SIZE; column += 1) {
+      const x = ((column + 0.5) / WEATHER_MAP_GRID_SIZE) * width;
+      const y = ((row + 0.5) / WEATHER_MAP_GRID_SIZE) * height;
+      const latLng = map.containerPointToLatLng([x, y]);
+      const latitude = clampNumber(latLng.lat, -89.5, 89.5);
+      const longitude = normalizeLongitude(latLng.lng);
+
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        locations.push({ latitude, longitude });
+      }
+    }
+  }
+
+  return locations.length ? locations : [{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }];
+}
+
+function getWeatherMapFieldCacheKey(locations) {
+  const zoom = Math.round(map.getZoom() * 2) / 2;
+  return `${zoom}:${locations.map((location) => `${location.latitude.toFixed(2)},${location.longitude.toFixed(2)}`).join("|")}`;
+}
+
+function trimWeatherMapFieldCache() {
+  if (weatherMapFieldCache.size <= 10) return;
+
+  const oldestKeys = [...weatherMapFieldCache.entries()]
+    .sort((a, b) => a[1].fetchedAt - b[1].fetchedAt)
+    .slice(0, weatherMapFieldCache.size - 10)
+    .map(([key]) => key);
+
+  oldestKeys.forEach((key) => weatherMapFieldCache.delete(key));
+}
+
+function createWeatherMapSample(location, current) {
+  const sample = {
+    latitude: Number(location.latitude),
+    longitude: Number(location.longitude),
+    temperature: toFiniteNumber(current.temperature_2m),
+    windSpeed: toFiniteNumber(current.wind_speed_10m),
+    windDirection: toFiniteNumber(current.wind_direction_10m),
+    cloudCover: toFiniteNumber(current.cloud_cover),
+    pressure: toFiniteNumber(current.pressure_msl),
+    rain: Math.max(toFiniteNumber(current.rain), toFiniteNumber(current.precipitation)),
+    weatherCode: current.weather_code
+  };
+
+  if (!Number.isFinite(sample.latitude) || !Number.isFinite(sample.longitude)) return null;
+  return sample;
+}
+
+function getCurrentLocationSample() {
+  return createWeatherMapSample(
+    {
+      latitude: currentLocation.latitude,
+      longitude: currentLocation.longitude
+    },
+    currentWeatherData.current || {}
+  );
+}
+
+function createLocalWeatherMapField() {
+  const sample = getCurrentLocationSample();
+  const field = {
+    samples: sample ? [sample] : [],
+    fetchedAt: Date.now(),
+    source: "Selected location"
+  };
+
+  field.ranges = getWeatherMapRanges(field.samples);
+  return field;
+}
+
+function projectWeatherMapField(field) {
+  const samples = (field.samples || []).map((sample) => {
+    const point = map.latLngToContainerPoint([sample.latitude, sample.longitude]);
+    return {
+      ...sample,
+      x: point.x,
+      y: point.y
+    };
+  });
+  const projectedField = {
+    ...field,
+    samples
+  };
+
+  projectedField.ranges = getWeatherMapRanges(samples);
+  return projectedField;
+}
+
+function getWeatherMapRanges(samples) {
+  return {
+    temperature: getValueRange(samples, "temperature", currentWeatherData.current.temperature_2m || 0),
+    windSpeed: getValueRange(samples, "windSpeed", currentWeatherData.current.wind_speed_10m || 0),
+    windDirection: getValueRange(samples, "windDirection", currentWeatherData.current.wind_direction_10m || 0),
+    cloudCover: getValueRange(samples, "cloudCover", currentWeatherData.current.cloud_cover || 0),
+    pressure: getValueRange(samples, "pressure", currentWeatherData.current.pressure_msl || 1013),
+    rain: getValueRange(samples, "rain", Math.max(currentWeatherData.current.rain || 0, currentWeatherData.current.precipitation || 0))
+  };
+}
+
+function getValueRange(samples, key, fallbackValue) {
+  const values = samples.map((sample) => sample[key]).filter(Number.isFinite);
+  const fallback = Number.isFinite(fallbackValue) ? fallbackValue : 0;
+
+  if (!values.length) {
+    return { min: fallback, max: fallback, mean: fallback };
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+
+  if (min === max) {
+    const pad = key === "pressure" ? 2 : key === "rain" ? 1 : 4;
+    return { min: min - pad, max: max + pad, mean };
+  }
+
+  return { min, max, mean };
+}
+
+function getSelectedWeatherSample(field) {
+  const currentSample = getCurrentLocationSample();
+  if (!currentSample) return field.samples[0] || {};
+
+  return {
+    ...currentSample,
+    x: getCityPoint().x,
+    y: getCityPoint().y
+  };
+}
+
+function getExtremeSample(samples, key, mode) {
+  return samples
+    .filter((sample) => Number.isFinite(sample[key]))
+    .sort((a, b) => mode === "max" ? b[key] - a[key] : a[key] - b[key])[0];
+}
+
+function isFinitePoint(sample) {
+  return Number.isFinite(sample?.x) && Number.isFinite(sample?.y);
+}
+
+function toFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, Number(value)));
+}
+
+function normalizeLongitude(longitude) {
+  const number = Number(longitude);
+  if (!Number.isFinite(number)) return number;
+  return ((((number + 180) % 360) + 360) % 360) - 180;
+}
+
+function getTemperatureColor(value, min, max, alpha) {
+  return getColorFromStops(value, min, max, alpha, [
+    [0, [89, 198, 255]],
+    [0.28, [88, 224, 191]],
+    [0.52, [255, 215, 100]],
+    [0.74, [255, 136, 77]],
+    [1, [255, 84, 68]]
+  ]);
+}
+
+function getWindColor(value, min, max, alpha) {
+  return getColorFromStops(value, min, max, alpha, [
+    [0, [155, 231, 255]],
+    [0.45, [79, 140, 255]],
+    [1, [173, 103, 255]]
+  ]);
+}
+
+function getCloudColor(value, min, max, alpha) {
+  const normalized = normalizeRangeValue(value, min, max);
+  const shade = Math.round(214 + normalized * 41);
+  return `rgba(${shade}, ${shade + 2}, 255, ${alpha * (0.45 + normalized * 0.55)})`;
+}
+
+function getPressureColor(value, min, max, alpha) {
+  return getColorFromStops(value, min, max, alpha, [
+    [0, [102, 199, 255]],
+    [0.5, [255, 255, 255]],
+    [1, [255, 238, 155]]
+  ]);
+}
+
+function getRainColor(value, min, max, alpha) {
+  return getColorFromStops(value, min, max, alpha, [
+    [0, [62, 186, 255]],
+    [0.48, [59, 124, 255]],
+    [0.76, [127, 82, 255]],
+    [1, [255, 59, 129]]
+  ]);
+}
+
+function getColorFromStops(value, min, max, alpha, stops) {
+  const normalized = normalizeRangeValue(value, min, max);
+  let left = stops[0];
+  let right = stops[stops.length - 1];
+
+  for (let index = 0; index < stops.length - 1; index += 1) {
+    if (normalized >= stops[index][0] && normalized <= stops[index + 1][0]) {
+      left = stops[index];
+      right = stops[index + 1];
+      break;
+    }
+  }
+
+  const span = right[0] - left[0] || 1;
+  const localT = (normalized - left[0]) / span;
+  const color = left[1].map((channel, index) => Math.round(channel + (right[1][index] - channel) * localT));
+
+  return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
+}
+
+function normalizeRangeValue(value, min, max) {
+  if (!Number.isFinite(value) || max === min) return 0.5;
+  return clampNumber((value - min) / (max - min), 0, 1);
+}
+
 function getMapModeTitle(mode) {
   const titles = {
     wind: "Wind View",
     thermal: "Thermal View",
+    rain: "Rain View",
     cloud: "Cloud View",
     pressure: "Pressure View"
   };
@@ -907,6 +1310,19 @@ function getMapModeTitle(mode) {
 }
 
 function getMapModeDescription(mode) {
+  const field = arguments[1] || createLocalWeatherMapField();
+  const selected = getSelectedWeatherSample(field);
+  const ranges = field.ranges;
+  const liveDescriptions = {
+    wind: `${Math.round(ranges.windSpeed.min)}-${Math.round(ranges.windSpeed.max)} km/h. Selected: ${Math.round(selected.windSpeed || 0)} km/h from ${getWindDirection(selected.windDirection || 0)}.`,
+    thermal: `${Math.round(ranges.temperature.min)}-${Math.round(ranges.temperature.max)}\u00B0C across this map. Selected: ${Math.round(selected.temperature || 0)}\u00B0C.`,
+    rain: `Radar where available. Local rain: ${Math.round(currentWeatherData.daily.precipitation_probability_max[0] || 0)}% chance.`,
+    cloud: `${Math.round(ranges.cloudCover.min)}-${Math.round(ranges.cloudCover.max)}% cloud cover. Selected: ${Math.round(selected.cloudCover || 0)}%.`,
+    pressure: `${Math.round(ranges.pressure.min)}-${Math.round(ranges.pressure.max)} hPa. Selected: ${Math.round(selected.pressure || 1013)} hPa.`
+  };
+
+  if (liveDescriptions[mode]) return liveDescriptions[mode];
+
   const current = currentWeatherData.current;
   const descriptions = {
     wind: `${Math.round(current.wind_speed_10m || 0)} km/h from ${getWindDirection(current.wind_direction_10m || 0)}.`,
@@ -919,6 +1335,18 @@ function getMapModeDescription(mode) {
 }
 
 function getMapLegend(mode) {
+  const field = arguments[1] || createLocalWeatherMapField();
+  const ranges = field.ranges;
+  const liveLegends = {
+    wind: [`${Math.round(ranges.windSpeed.min)} km/h`, `${Math.round(ranges.windSpeed.max)} km/h`, "linear-gradient(90deg, #9be7ff, #4f8cff, #ad67ff)"],
+    thermal: [`${Math.round(ranges.temperature.min)}\u00B0`, `${Math.round(ranges.temperature.max)}\u00B0`, "linear-gradient(90deg, #59c6ff, #58e0bf, #ffd764, #ff884d, #ff5444)"],
+    rain: ["Light", "Heavy", "linear-gradient(90deg, rgba(62, 186, 255, 0.35), #3bb2ff, #7f52ff, #ff3b81)"],
+    cloud: [`${Math.round(ranges.cloudCover.min)}%`, `${Math.round(ranges.cloudCover.max)}%`, "linear-gradient(90deg, rgba(245, 250, 255, 0.12), rgba(245, 250, 255, 0.86))"],
+    pressure: [`${Math.round(ranges.pressure.min)} hPa`, `${Math.round(ranges.pressure.max)} hPa`, "linear-gradient(90deg, #66c7ff, #ffffff, #ffee9b)"]
+  };
+
+  if (liveLegends[mode]) return liveLegends[mode];
+
   const legends = {
     wind: ["Calm", "Strong", "linear-gradient(90deg, rgba(180, 232, 255, 0.28), #b4e8ff)"],
     thermal: ["Cold", "Hot", "linear-gradient(90deg, #59c6ff, #ffd764, #ff5444)"],
@@ -1008,6 +1436,7 @@ function renderRecentSearches(searches) {
     chip.className = "chip";
     chip.type = "button";
     chip.textContent = search.country ? `${search.name}, ${search.country}` : search.name;
+    chip.title = chip.textContent;
     chip.addEventListener("click", () => searchCity(search.name));
     recentList.appendChild(chip);
   });
@@ -1015,6 +1444,7 @@ function renderRecentSearches(searches) {
 
 function showLoading() {
   searchButton.disabled = true;
+  clearSearchButton.disabled = true;
   locationButton.disabled = true;
   cityInput.disabled = true;
   searchButton.textContent = "Loading";
@@ -1033,9 +1463,11 @@ function showLoading() {
 
 function hideLoading() {
   searchButton.disabled = false;
+  clearSearchButton.disabled = false;
   locationButton.disabled = false;
   cityInput.disabled = false;
   searchButton.textContent = "Search";
+  updateClearSearchButton();
 }
 
 function showError(message) {
@@ -1071,6 +1503,8 @@ function requestUserLocation() {
         currentLocation = location;
         currentWeatherData = weatherData;
         currentHourlyIndex = findCurrentHourlyIndex(weatherData);
+        cityInput.value = formatLocationName(location);
+        updateClearSearchButton();
 
         renderCurrentWeather(location, weatherData);
         renderHourlyForecast(weatherData);
@@ -1092,35 +1526,55 @@ function requestUserLocation() {
       const reason = getGeolocationErrorMessage(error);
       await useApproximateLocation(reason);
     },
-    { enableHighAccuracy: true, timeout: 10000 }
+    { enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 }
   );
 }
 
 async function fetchReverseCoordinates(latitude, longitude) {
   const url = `${REVERSE_GEO_API_URL}?latitude=${latitude}&longitude=${longitude}&count=1&language=en&format=json`;
-  const response = await fetch(url);
+  const fallbackLocation = await createNamedLocationFallback(latitude, longitude);
 
-  if (!response.ok) {
-    throw new Error("Could not identify your city from the browser location.");
+  try {
+    const response = await fetchWithTimeout(url, {}, 8000);
+
+    if (!response.ok) {
+      return fallbackLocation;
+    }
+
+    const data = await response.json();
+    const result = data.results && data.results[0];
+
+    if (result) {
+      return {
+        ...result,
+        latitude,
+        longitude
+      };
+    }
+  } catch (error) {
+    return fallbackLocation;
   }
 
-  const data = await response.json();
-  const result = data.results && data.results[0];
+  return fallbackLocation;
+}
 
-  if (result) {
+async function createNamedLocationFallback(latitude, longitude) {
+  try {
+    const approximateLocation = await fetchApproximateLocation();
+
     return {
-      ...result,
+      ...approximateLocation,
+      latitude,
+      longitude
+    };
+  } catch (error) {
+    return {
+      name: "Current location",
+      country: "",
       latitude,
       longitude
     };
   }
-
-  return {
-    name: "Your location",
-    country: "",
-    latitude,
-    longitude
-  };
 }
 
 async function useApproximateLocation(reason) {
@@ -1133,6 +1587,8 @@ async function useApproximateLocation(reason) {
     currentLocation = location;
     currentWeatherData = weatherData;
     currentHourlyIndex = findCurrentHourlyIndex(weatherData);
+    cityInput.value = formatLocationName(location);
+    updateClearSearchButton();
 
     renderCurrentWeather(location, weatherData);
     renderHourlyForecast(weatherData);
@@ -1151,7 +1607,24 @@ async function useApproximateLocation(reason) {
 }
 
 async function fetchApproximateLocation() {
-  const response = await fetch(IP_LOCATION_API_URL);
+  const providers = [
+    () => fetchIpApiLocation(),
+    () => fetchIpWhoLocation()
+  ];
+
+  for (const provider of providers) {
+    try {
+      return await provider();
+    } catch (error) {
+      // Try the next approximate provider before asking the user to search manually.
+    }
+  }
+
+  throw new Error("Approximate location lookup failed.");
+}
+
+async function fetchIpApiLocation() {
+  const response = await fetchWithTimeout(IP_LOCATION_API_URL, {}, 8000);
 
   if (!response.ok) {
     throw new Error("Approximate location lookup failed.");
@@ -1172,6 +1645,44 @@ async function fetchApproximateLocation() {
     latitude,
     longitude
   };
+}
+
+async function fetchIpWhoLocation() {
+  const response = await fetchWithTimeout(IP_LOCATION_FALLBACK_URL, {}, 8000);
+
+  if (!response.ok) {
+    throw new Error("Backup approximate location lookup failed.");
+  }
+
+  const data = await response.json();
+  const latitude = Number(data.latitude);
+  const longitude = Number(data.longitude);
+
+  if (data.success === false || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw new Error("Backup approximate location was incomplete.");
+  }
+
+  return {
+    name: data.city || "Your area",
+    admin1: data.region || "",
+    country: data.country || "",
+    latitude,
+    longitude
+  };
+}
+
+async function fetchWithTimeout(url, options = {}, timeout = 8000) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeout);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: options.signal || controller.signal
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function getGeolocationErrorMessage(error) {

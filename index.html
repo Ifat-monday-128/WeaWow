@@ -52,13 +52,14 @@
               <input
                 id="city-input"
                 name="city"
-                type="search"
+                type="text"
                 placeholder="Search Dhaka, Tokyo, London..."
                 autocomplete="off"
                 aria-autocomplete="list"
                 aria-controls="location-suggestions"
                 aria-expanded="false"
               />
+              <button id="clear-search" class="clear-search" type="button" aria-label="Clear selected location" hidden>x</button>
               <button id="search-button" type="submit">Search</button>
             </div>
             <div id="location-suggestions" class="location-suggestions" role="listbox"></div>

@@ -285,8 +285,10 @@ button {
 
 .search-box {
   display: flex;
+  align-items: center;
   gap: 10px;
   width: 100%;
+  min-width: 0;
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 24px;
@@ -314,6 +316,7 @@ button {
 }
 
 #search-button,
+.clear-search,
 .ghost-button,
 .mode-btn,
 .chip {
@@ -324,6 +327,7 @@ button {
 }
 
 #search-button {
+  flex: 0 0 auto;
   border-radius: 18px;
   padding: 12px 17px;
   color: #08111f;
@@ -331,7 +335,27 @@ button {
   background: linear-gradient(135deg, #ffffff, #aee5ff 50%, #ffe29a);
 }
 
+.clear-search {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.clear-search[hidden] {
+  display: none;
+}
+
 #search-button:disabled,
+.clear-search:disabled,
 .ghost-button:disabled {
   opacity: 0.66;
   cursor: wait;
@@ -343,6 +367,7 @@ button {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .ghost-button,
@@ -373,13 +398,17 @@ button {
 .chip-list {
   display: flex;
   gap: 8px;
+  max-width: 100%;
   overflow-x: auto;
   padding: 2px;
 }
 
 .chip {
+  max-width: min(260px, 72vw);
   padding: 8px 11px;
   font-size: 0.86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .empty-chip {
@@ -881,7 +910,8 @@ button {
   width: 100%;
   height: 100%;
   pointer-events: none;
-  mix-blend-mode: screen;
+  opacity: 0.76;
+  mix-blend-mode: normal;
 }
 
 .map-overlay {
@@ -1010,6 +1040,18 @@ button {
   animation: windMove 2.2s linear infinite;
 }
 
+.wind-flow {
+  position: absolute;
+  z-index: 2;
+  width: clamp(54px, 7vw, 96px);
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(235, 250, 255, 0.92), transparent);
+  filter: drop-shadow(0 0 7px rgba(141, 215, 255, 0.44));
+  transform: translate(-50%, -50%) rotate(var(--wind-rotation));
+  animation: windFlow var(--wind-duration, 2s) linear infinite;
+}
+
 .thermal-overlay {
   position: absolute;
   border-radius: 50%;
@@ -1061,6 +1103,12 @@ button {
   padding: 12px;
   border-radius: 18px;
   font-weight: 800;
+}
+
+.pressure-card small {
+  display: block;
+  margin-top: 3px;
+  color: rgba(255, 255, 255, 0.76);
 }
 
 .details-grid {
@@ -1640,6 +1688,20 @@ button {
   to { opacity: 0; transform: translateX(76px) scaleX(1); }
 }
 
+@keyframes windFlow {
+  from {
+    transform: translate(-42px, -50%) rotate(var(--wind-rotation)) scaleX(0.35);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.76;
+  }
+  to {
+    transform: translate(62px, -50%) rotate(var(--wind-rotation)) scaleX(1);
+    opacity: 0;
+  }
+}
+
 @keyframes thermalPulse {
   0%, 100% { opacity: 0.62; transform: translate(-50%, -50%) scale(0.92); }
   50% { opacity: 0.92; transform: translate(-50%, -50%) scale(1.08); }
@@ -1792,7 +1854,22 @@ button {
 
   .search-box {
     display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     border-radius: 22px;
+  }
+
+  .search-box input {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .clear-search {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  #search-button {
+    grid-column: 1 / -1;
   }
 
   #search-button,
