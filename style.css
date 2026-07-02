@@ -480,6 +480,183 @@ button {
   background: rgba(13, 91, 82, 0.26);
 }
 
+.safety-center {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 18px;
+  border-radius: 28px;
+  scroll-margin-top: 18px;
+}
+
+.safety-heading,
+.news-heading {
+  margin-bottom: 0;
+}
+
+.safety-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.safety-actions .ghost-button {
+  padding: 9px 12px;
+}
+
+.safety-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.safety-card {
+  min-height: 142px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--soft);
+}
+
+.safety-card strong {
+  display: block;
+  margin-top: 8px;
+  color: #fff;
+  font-size: clamp(1.25rem, 3vw, 2rem);
+  line-height: 1.05;
+}
+
+.safety-card p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.safety-label {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.safety-card.warning {
+  border-color: rgba(255, 214, 109, 0.52);
+  background: rgba(117, 87, 20, 0.24);
+}
+
+.safety-card.danger {
+  border-color: rgba(255, 122, 154, 0.56);
+  background: rgba(100, 18, 44, 0.28);
+}
+
+.weather-news-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.weather-news-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.news-card,
+.news-empty {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--soft);
+  overflow: hidden;
+}
+
+.news-card {
+  color: var(--text);
+  text-decoration: none;
+  transition: transform 180ms ease, background 180ms ease;
+}
+
+.news-card:hover {
+  transform: translateY(-3px);
+  background: var(--glass-strong);
+}
+
+.news-card img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: block;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.news-visual {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(141, 215, 255, 0.28), rgba(255, 214, 109, 0.22));
+}
+
+.news-visual::before,
+.news-visual::after {
+  content: "";
+  position: absolute;
+  inset: 18%;
+  border-radius: 50%;
+  filter: blur(10px);
+}
+
+.news-visual::before {
+  background: rgba(255, 255, 255, 0.52);
+  transform: translateX(-18%);
+}
+
+.news-visual::after {
+  background: rgba(141, 215, 255, 0.5);
+  transform: translate(18%, 12%);
+}
+
+.news-visual-storm {
+  background: linear-gradient(135deg, #243449, #64748b 55%, #b9c8d8);
+}
+
+.news-visual-flood {
+  background: linear-gradient(135deg, #123b5d, #2f80c4 55%, #8dd7ff);
+}
+
+.news-visual-fire {
+  background: linear-gradient(135deg, #3b1020, #d45128 52%, #ffd66f);
+}
+
+.news-visual-volcano {
+  background: linear-gradient(135deg, #1f1720, #8c2f39 52%, #f59e0b);
+}
+
+.news-card-body {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.news-card strong {
+  line-height: 1.16;
+}
+
+.news-card small,
+.news-empty {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.news-empty {
+  grid-column: 1 / -1;
+  padding: 16px;
+}
+
 .current-card {
   position: relative;
   overflow: hidden;
@@ -1897,6 +2074,23 @@ button {
 
   .map-heading {
     display: grid;
+  }
+
+  .safety-heading {
+    display: grid;
+  }
+
+  .safety-actions {
+    justify-content: flex-start;
+  }
+
+  .safety-actions .ghost-button {
+    flex: 1 1 160px;
+  }
+
+  .safety-grid,
+  .weather-news-list {
+    grid-template-columns: 1fr;
   }
 
   .mode-buttons {

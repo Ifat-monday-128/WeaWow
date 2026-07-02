@@ -17,12 +17,21 @@ const weatherEffects = document.getElementById("weather-effects");
 const mapOverlay = document.getElementById("map-overlay");
 const mapCanvas = document.getElementById("map-canvas");
 const liveClock = document.getElementById("live-clock");
+const notificationButton = document.getElementById("notification-button");
+const safetyRefreshButton = document.getElementById("safety-refresh-button");
+const newsRefreshButton = document.getElementById("news-refresh-button");
+const weatherAlertPanel = document.getElementById("weather-alert-panel");
+const earthquakePanel = document.getElementById("earthquake-panel");
+const weatherNewsList = document.getElementById("weather-news-list");
 
 const GEO_API_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const REVERSE_GEO_API_URL = "https://geocoding-api.open-meteo.com/v1/reverse";
 const FORECAST_API_URL = "https://api.open-meteo.com/v1/forecast";
 const IP_LOCATION_API_URL = "https://ipapi.co/json/";
 const IP_LOCATION_FALLBACK_URL = "https://ipwho.is/";
+const USGS_EARTHQUAKE_API_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query";
+const GDELT_DOC_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc";
+const NASA_EONET_API_URL = "https://eonet.gsfc.nasa.gov/api/v3/events";
 const WEATHER_MAP_CURRENT_VARIABLES = [
   "temperature_2m",
   "precipitation",
@@ -35,6 +44,9 @@ const WEATHER_MAP_CURRENT_VARIABLES = [
 ];
 const WEATHER_MAP_GRID_SIZE = 5;
 const WEATHER_MAP_CACHE_MS = 8 * 60 * 1000;
+const SAFETY_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+const NEWS_CACHE_MS = 10 * 60 * 1000;
+const NEWS_MIN_REQUEST_GAP_MS = 7000;
 const RECENT_SEARCHES_KEY = "weawow-recent-searches";
 const THEME_KEY = "weawow-theme";
 
@@ -51,6 +63,11 @@ let suggestionTimer = null;
 let suggestionAbortController = null;
 let mapRenderVersion = 0;
 let weatherMapFieldCache = new Map();
+let safetyTimer = null;
+let lastWeatherAlertKey = "";
+let lastEarthquakeAlertKey = "";
+let weatherNewsCache = null;
+let lastWeatherNewsRequestAt = 0;
 
 function initApp() {
   loadTheme();
@@ -59,6 +76,7 @@ function initApp() {
   initMap();
   wireEvents();
   showError("Search a city to begin, or try the live demo for Dhaka.");
+  updateNotificationButton();
   searchCity("Dhaka");
 }
 
@@ -83,6 +101,9 @@ function wireEvents() {
 
   themeToggle.addEventListener("click", () => toggleTheme());
   locationButton.addEventListener("click", requestUserLocation);
+  notificationButton.addEventListener("click", requestNotificationPermission);
+  safetyRefreshButton.addEventListener("click", refreshSafetyCenter);
+  newsRefreshButton.addEventListener("click", () => loadWeatherNews(true));
 
   mapModeButtons.forEach((button) => {
     button.addEventListener("click", () => {
@@ -162,6 +183,7 @@ async function searchCity(cityName = cityInput.value) {
     updateMapLocation(location, weatherData);
     updateWeatherAnimation(weatherData);
     updateBackground(weatherData);
+    updateSafetyCenter(location, weatherData);
     saveRecentSearch(location.name, location.country);
     showSuccess(`Showing ${location.name}, ${location.country || "selected location"}.`);
   } catch (error) {
@@ -263,6 +285,7 @@ async function selectLocationSuggestion(location) {
     updateMapLocation(location, weatherData);
     updateWeatherAnimation(weatherData);
     updateBackground(weatherData);
+    updateSafetyCenter(location, weatherData);
     saveRecentSearch(location.name, location.country);
     showSuccess(`Showing ${location.name}, ${location.country || "selected location"}.`);
   } catch (error) {
@@ -523,6 +546,475 @@ function renderWeatherDetails(weatherData) {
       <small>${detail.hint}</small>
     </article>
   `).join("");
+}
+
+function updateSafetyCenter(location = currentLocation, weatherData = currentWeatherData) {
+  if (!location || !weatherData) return;
+
+  renderWeatherAlertPanel(weatherData);
+  loadEarthquakeWatch(location);
+  scheduleSafetyMonitor();
+}
+
+function scheduleSafetyMonitor() {
+  if (safetyTimer) window.clearInterval(safetyTimer);
+  safetyTimer = window.setInterval(refreshSafetyCenter, SAFETY_CHECK_INTERVAL_MS);
+}
+
+async function refreshSafetyCenter() {
+  if (!currentLocation) {
+    renderSafetyMessage(weatherAlertPanel, "Weather change", "Location needed", "Search a city or use your location first.");
+    renderSafetyMessage(earthquakePanel, "Earthquake watch", "Location needed", "Nearby earthquake activity appears here when your location is available.");
+    return;
+  }
+
+  safetyRefreshButton.disabled = true;
+  safetyRefreshButton.textContent = "Checking";
+
+  try {
+    const weatherData = await fetchWeather(currentLocation);
+    currentWeatherData = weatherData;
+    currentHourlyIndex = findCurrentHourlyIndex(weatherData);
+    updateSafetyCenter(currentLocation, weatherData);
+  } catch (error) {
+    renderSafetyMessage(weatherAlertPanel, "Weather change", "Check failed", "Safety data could not be refreshed right now.", "warning");
+  } finally {
+    safetyRefreshButton.disabled = false;
+    safetyRefreshButton.textContent = "Refresh safety";
+  }
+}
+
+function renderWeatherAlertPanel(weatherData) {
+  const risk = evaluateWeatherRisk(weatherData);
+  const message = risk.messages.length ? risk.messages.join(" ") : "No severe weather change detected from the current forecast.";
+
+  renderSafetyMessage(
+    weatherAlertPanel,
+    "Weather change",
+    risk.title,
+    message,
+    risk.level
+  );
+
+  if (risk.level !== "normal") {
+    notifyOnce("weather", risk.key, risk.title, message);
+  }
+}
+
+function evaluateWeatherRisk(weatherData) {
+  const current = weatherData.current || {};
+  const daily = weatherData.daily || {};
+  const hourly = weatherData.hourly || {};
+  const code = Number(current.weather_code);
+  const wind = Number(current.wind_speed_10m || 0);
+  const gust = Number(current.wind_gusts_10m || 0);
+  const pressure = Number(current.pressure_msl || 1013);
+  const rainNow = Math.max(Number(current.rain || 0), Number(current.precipitation || 0));
+  const rainChance = Number(daily.precipitation_probability_max?.[0] || hourly.precipitation_probability?.[currentHourlyIndex] || 0);
+  const tempNow = Number(hourly.temperature_2m?.[currentHourlyIndex] ?? current.temperature_2m ?? 0);
+  const tempSoon = Number(hourly.temperature_2m?.[Math.min((hourly.temperature_2m || []).length - 1, currentHourlyIndex + 6)] ?? tempNow);
+  const tempSwing = Math.abs(tempSoon - tempNow);
+  const messages = [];
+  let score = 0;
+
+  if ([95, 96, 99].includes(code)) {
+    score += 3;
+    messages.push("Thunderstorm risk is active near the selected location.");
+  }
+
+  if ([65, 67, 82].includes(code) || rainNow >= 5) {
+    score += 3;
+    messages.push("Heavy rain or intense showers are being reported.");
+  } else if (rainChance >= 80) {
+    score += 2;
+    messages.push(`Rain probability is high today at ${Math.round(rainChance)}%.`);
+  }
+
+  if (gust >= 70 || wind >= 50) {
+    score += 3;
+    messages.push(`Strong wind is possible: ${Math.round(wind)} km/h wind, gusts near ${Math.round(gust)} km/h.`);
+  } else if (gust >= 45 || wind >= 32) {
+    score += 2;
+    messages.push(`Breezy conditions may build: ${Math.round(wind)} km/h wind.`);
+  }
+
+  if (tempSwing >= 8) {
+    score += 2;
+    messages.push(`Temperature may shift about ${Math.round(tempSwing)}°C within the next 6 hours.`);
+  }
+
+  if (pressure <= 995) {
+    score += 2;
+    messages.push(`Pressure is low at ${Math.round(pressure)} hPa, which can signal unsettled weather.`);
+  }
+
+  const level = score >= 5 ? "danger" : score >= 2 ? "warning" : "normal";
+  const title = level === "danger" ? "Severe weather watch" : level === "warning" ? "Weather change watch" : "Conditions look steady";
+  const key = [
+    level,
+    code,
+    Math.round(wind / 5) * 5,
+    Math.round(gust / 5) * 5,
+    Math.round(rainChance / 10) * 10,
+    Math.round(tempSwing)
+  ].join(":");
+
+  return { level, title, messages, key };
+}
+
+async function loadEarthquakeWatch(location) {
+  renderSafetyMessage(earthquakePanel, "Earthquake watch", "Checking nearby activity", "Looking for recent USGS earthquake reports near this location.");
+
+  try {
+    const quakes = await fetchNearbyEarthquakes(location);
+    renderEarthquakePanel(quakes);
+  } catch (error) {
+    renderSafetyMessage(earthquakePanel, "Earthquake watch", "Unable to check", "USGS earthquake data could not be loaded right now.", "warning");
+  }
+}
+
+async function fetchNearbyEarthquakes(location) {
+  const startTime = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const params = new URLSearchParams({
+    format: "geojson",
+    latitude: location.latitude,
+    longitude: location.longitude,
+    maxradiuskm: "800",
+    minmagnitude: "3.5",
+    starttime: startTime,
+    orderby: "time",
+    limit: "6"
+  });
+  const response = await fetchWithTimeout(`${USGS_EARTHQUAKE_API_URL}?${params.toString()}`, {}, 10000);
+
+  if (!response.ok) {
+    throw new Error("Earthquake service unavailable.");
+  }
+
+  const data = await response.json();
+  return (data.features || []).map((feature) => {
+    const coordinates = feature.geometry?.coordinates || [];
+    const quakeLocation = {
+      latitude: Number(coordinates[1]),
+      longitude: Number(coordinates[0])
+    };
+    const distance = getDistanceKm(location.latitude, location.longitude, quakeLocation.latitude, quakeLocation.longitude);
+
+    return {
+      id: feature.id,
+      magnitude: Number(feature.properties?.mag || 0),
+      place: feature.properties?.place || "Nearby region",
+      time: feature.properties?.time || 0,
+      url: feature.properties?.url || "",
+      distance
+    };
+  });
+}
+
+function renderEarthquakePanel(quakes) {
+  const strongest = quakes.sort((a, b) => b.magnitude - a.magnitude)[0];
+
+  if (!strongest) {
+    renderSafetyMessage(
+      earthquakePanel,
+      "Earthquake watch",
+      "No nearby M3.5+ reports",
+      "No USGS M3.5+ earthquake reports were found within 800 km during the last 7 days. Earthquakes cannot be predicted in advance.",
+      "normal"
+    );
+    return;
+  }
+
+  const level = strongest.magnitude >= 5.5 || strongest.distance <= 150 ? "danger" : strongest.magnitude >= 4.5 ? "warning" : "normal";
+  const age = formatRelativeTime(strongest.time);
+  const message = `M${strongest.magnitude.toFixed(1)} ${Math.round(strongest.distance)} km away, ${age}. ${strongest.place}. Earthquakes cannot be predicted in advance.`;
+
+  renderSafetyMessage(earthquakePanel, "Earthquake watch", "Recent nearby activity", message, level);
+
+  if (level !== "normal") {
+    notifyOnce("quake", strongest.id || message, "Nearby earthquake activity", message);
+  }
+}
+
+function renderSafetyMessage(panel, label, title, message, level = "normal") {
+  panel.className = `safety-card ${level === "danger" ? "danger" : level === "warning" ? "warning" : ""}`.trim();
+  panel.innerHTML = `
+    <span class="safety-label">${escapeHtml(label)}</span>
+    <strong>${escapeHtml(title)}</strong>
+    <p>${escapeHtml(message)}</p>
+  `;
+}
+
+async function requestNotificationPermission() {
+  if (!("Notification" in window)) {
+    renderSafetyMessage(weatherAlertPanel, "Weather change", "Notifications unavailable", "This browser does not support system notifications.", "warning");
+    return;
+  }
+
+  if (Notification.permission === "default") {
+    await Notification.requestPermission();
+  }
+
+  updateNotificationButton();
+}
+
+function updateNotificationButton() {
+  if (!notificationButton) return;
+
+  if (!("Notification" in window)) {
+    notificationButton.textContent = "Alerts unavailable";
+    notificationButton.disabled = true;
+    return;
+  }
+
+  if (Notification.permission === "granted") {
+    notificationButton.textContent = "Alerts enabled";
+  } else if (Notification.permission === "denied") {
+    notificationButton.textContent = "Alerts blocked";
+  } else {
+    notificationButton.textContent = "Enable alerts";
+  }
+}
+
+function notifyOnce(type, key, title, body) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  const stateKey = `${type}:${key}`;
+  if (type === "weather" && stateKey === lastWeatherAlertKey) return;
+  if (type === "quake" && stateKey === lastEarthquakeAlertKey) return;
+
+  if (type === "weather") lastWeatherAlertKey = stateKey;
+  if (type === "quake") lastEarthquakeAlertKey = stateKey;
+
+  new Notification(`WeaWow: ${title}`, {
+    body,
+    icon: "app-icon.svg",
+    badge: "app-icon.svg"
+  });
+}
+
+async function loadWeatherNews(forceRefresh = false) {
+  if (!weatherNewsList) return;
+
+  if (weatherNewsCache && Date.now() - weatherNewsCache.fetchedAt < NEWS_CACHE_MS) {
+    renderWeatherNews(weatherNewsCache.articles);
+    return;
+  }
+
+  const now = Date.now();
+  const waitMs = NEWS_MIN_REQUEST_GAP_MS - (now - lastWeatherNewsRequestAt);
+
+  if (waitMs > 0) {
+    weatherNewsList.innerHTML = `<article class="news-empty">News feed is cooling down. Try again in ${Math.ceil(waitMs / 1000)} seconds.</article>`;
+    return;
+  }
+
+  lastWeatherNewsRequestAt = now;
+  newsRefreshButton.disabled = true;
+  newsRefreshButton.textContent = "Loading";
+  weatherNewsList.innerHTML = '<article class="news-empty">Loading latest global weather stories...</article>';
+
+  try {
+    const articles = await fetchWeatherNews();
+    weatherNewsCache = { articles, fetchedAt: Date.now() };
+    renderWeatherNews(articles);
+  } catch (error) {
+    const message = error.message && error.message.includes("rate")
+      ? "News feed is rate-limited right now. Wait a few seconds, then tap Latest news again."
+      : "Latest weather news could not be loaded right now. Try again in a moment.";
+
+    weatherNewsList.innerHTML = `<article class="news-empty">${escapeHtml(message)}</article>`;
+  } finally {
+    newsRefreshButton.disabled = false;
+    newsRefreshButton.textContent = "Latest news";
+  }
+}
+
+async function fetchWeatherNews() {
+  try {
+    const articles = await fetchGdeltWeatherNews();
+    if (articles.length) return articles;
+  } catch (error) {
+    // Fall back to NASA natural event data below.
+  }
+
+  try {
+    const articles = await fetchNaturalEventNews();
+    if (articles.length) return articles;
+  } catch (error) {
+    // Curated sources below keep the panel useful during API outages.
+  }
+
+  return getCuratedWeatherSources();
+}
+
+async function fetchGdeltWeatherNews() {
+  const params = new URLSearchParams({
+    query: '(storm OR flood OR cyclone OR hurricane OR typhoon OR heatwave OR wildfire) sourcelang:english',
+    mode: "artlist",
+    format: "json",
+    maxrecords: "6",
+    sort: "hybridrel"
+  });
+  const response = await fetchWithTimeout(`${GDELT_DOC_API_URL}?${params.toString()}`, {}, 32000);
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    if (response.status === 429 || errorText.toLowerCase().includes("limit requests")) {
+      throw new Error("Weather news rate limited.");
+    }
+
+    throw new Error("Weather news unavailable.");
+  }
+
+  const data = await response.json();
+  return (data.articles || []).slice(0, 6).map((article) => ({
+    title: article.title || "Weather story",
+    url: article.url || "#",
+    image: article.socialimage || article.image || "",
+    domain: article.domain || "",
+    seenDate: article.seendate || article.seenDate || "",
+    type: "news"
+  }));
+}
+
+async function fetchNaturalEventNews() {
+  const params = new URLSearchParams({
+    status: "open",
+    limit: "6",
+    category: "severeStorms,wildfires,floods,volcanoes"
+  });
+  const response = await fetchWithTimeout(`${NASA_EONET_API_URL}?${params.toString()}`, {}, 10000);
+
+  if (!response.ok) {
+    throw new Error("Weather news unavailable.");
+  }
+
+  const data = await response.json();
+  return (data.events || []).slice(0, 6).map((event) => {
+    const category = event.categories?.[0]?.title || "Natural event";
+    const geometry = event.geometry?.[event.geometry.length - 1] || {};
+
+    return {
+      title: event.title || category,
+      url: event.link || "https://eonet.gsfc.nasa.gov/",
+      image: "",
+      domain: "NASA EONET",
+      seenDate: geometry.date || "",
+      category,
+      type: "event"
+    };
+  });
+}
+
+function renderWeatherNews(articles) {
+  const visibleArticles = (articles || []).filter((article) => article.url && article.title);
+
+  if (!visibleArticles.length) {
+    weatherNewsList.innerHTML = '<article class="news-empty">No recent weather stories with usable links were found.</article>';
+    return;
+  }
+
+  weatherNewsList.innerHTML = visibleArticles.map((article) => {
+    const imageMarkup = article.image
+      ? `<img src="${escapeHtml(article.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
+      : `<span class="news-visual ${getNewsVisualClass(article)}" aria-hidden="true"></span>`;
+
+    return `
+      <a class="news-card" href="${escapeHtml(article.url)}" target="_blank" rel="noopener noreferrer">
+        ${imageMarkup}
+        <span class="news-card-body">
+          <strong>${escapeHtml(article.title)}</strong>
+          <small>${escapeHtml([article.domain, formatNewsDate(article.seenDate)].filter(Boolean).join(" · "))}</small>
+        </span>
+      </a>
+    `;
+  }).join("");
+}
+
+function getNewsVisualClass(article) {
+  const text = `${article.title || ""} ${article.category || ""}`.toLowerCase();
+
+  if (article.type === "source") return "news-visual-weather";
+  if (text.includes("storm") || text.includes("cyclone") || text.includes("hurricane") || text.includes("typhoon")) return "news-visual-storm";
+  if (text.includes("flood")) return "news-visual-flood";
+  if (text.includes("fire") || text.includes("wildfire")) return "news-visual-fire";
+  if (text.includes("volcano")) return "news-visual-volcano";
+  return "news-visual-weather";
+}
+
+function getCuratedWeatherSources() {
+  return [
+    {
+      title: "WMO latest weather, climate, and hazard updates",
+      url: "https://wmo.int/media/news",
+      image: "",
+      domain: "World Meteorological Organization",
+      seenDate: "",
+      category: "Weather source",
+      type: "source"
+    },
+    {
+      title: "NOAA weather and climate news",
+      url: "https://www.noaa.gov/news",
+      image: "",
+      domain: "NOAA",
+      seenDate: "",
+      category: "Weather source",
+      type: "source"
+    },
+    {
+      title: "NASA Earth Observatory natural hazards",
+      url: "https://earthobservatory.nasa.gov/topic/natural-hazards",
+      image: "",
+      domain: "NASA Earth Observatory",
+      seenDate: "",
+      category: "Weather source",
+      type: "source"
+    }
+  ];
+}
+
+function formatNewsDate(value) {
+  if (!value) return "";
+  const normalized = String(value).replace(
+    /^(\d{4})(\d{2})(\d{2})T?(\d{2})(\d{2})(\d{2})Z?$/,
+    "$1-$2-$3T$4:$5:$6Z"
+  );
+  const date = new Date(normalized);
+
+  if (Number.isNaN(date.getTime())) return "";
+  return formatRelativeTime(date.getTime());
+}
+
+function formatRelativeTime(timestamp) {
+  const diffMs = Date.now() - Number(timestamp);
+  const absMs = Math.abs(diffMs);
+  const minutes = Math.round(absMs / 60000);
+  const hours = Math.round(absMs / 3600000);
+  const days = Math.round(absMs / 86400000);
+
+  if (minutes < 60) return `${minutes || 1} min ago`;
+  if (hours < 48) return `${hours} hr ago`;
+  return `${days} days ago`;
+}
+
+function getDistanceKm(latA, lonA, latB, lonB) {
+  const coordinates = [latA, lonA, latB, lonB].map(Number);
+  if (!coordinates.every(Number.isFinite)) return Infinity;
+
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(coordinates[2] - coordinates[0]);
+  const dLon = toRadians(coordinates[3] - coordinates[1]);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(coordinates[0])) * Math.cos(toRadians(coordinates[2])) * Math.sin(dLon / 2) ** 2;
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function toRadians(degrees) {
+  return (Number(degrees) * Math.PI) / 180;
 }
 
 function initMap() {
@@ -1513,6 +2005,7 @@ function requestUserLocation() {
         updateMapLocation(location, weatherData);
         updateWeatherAnimation(weatherData);
         updateBackground(weatherData);
+        updateSafetyCenter(location, weatherData);
         saveRecentSearch(location.name, location.country);
         showSuccess(`Showing weather near ${location.name}.`);
       } catch (error) {
@@ -1597,6 +2090,7 @@ async function useApproximateLocation(reason) {
     updateMapLocation(location, weatherData);
     updateWeatherAnimation(weatherData);
     updateBackground(weatherData);
+    updateSafetyCenter(location, weatherData);
     saveRecentSearch(location.name, location.country);
     showSuccess(`${reason} Showing approximate weather near ${location.name}.`);
   } catch (error) {

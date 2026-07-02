@@ -27,6 +27,7 @@
 
         <nav class="top-nav" aria-label="Primary navigation">
           <a href="about.html">About</a>
+          <a href="#safety-center">Safety</a>
         </nav>
 
         <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch theme">
@@ -119,6 +120,47 @@
             </div>
             <div id="weather-details" class="details-grid"></div>
           </section>
+        </section>
+
+        <section id="safety-center" class="safety-center glass" aria-labelledby="safety-title">
+          <div class="section-heading safety-heading">
+            <div>
+              <p class="eyebrow">Safety monitor</p>
+              <h2 id="safety-title">Alerts, earthquakes, and weather news</h2>
+            </div>
+
+            <div class="safety-actions">
+              <button id="notification-button" class="ghost-button" type="button">Enable alerts</button>
+              <button id="safety-refresh-button" class="ghost-button" type="button">Refresh safety</button>
+              <button id="news-refresh-button" class="ghost-button" type="button">Latest news</button>
+            </div>
+          </div>
+
+          <div class="safety-grid">
+            <article id="weather-alert-panel" class="safety-card">
+              <span class="safety-label">Weather change</span>
+              <strong>Waiting for forecast</strong>
+              <p>Search or use your location to start local monitoring.</p>
+            </article>
+
+            <article id="earthquake-panel" class="safety-card">
+              <span class="safety-label">Earthquake watch</span>
+              <strong>Location needed</strong>
+              <p>Nearby earthquake activity appears here when your location is available.</p>
+            </article>
+          </div>
+
+          <div class="weather-news-panel">
+            <div class="section-heading news-heading">
+              <div>
+                <p class="eyebrow">World weather news</p>
+                <h2>Latest global weather stories</h2>
+              </div>
+            </div>
+            <div id="weather-news-list" class="weather-news-list">
+              <article class="news-empty">Tap Latest news to load recent weather stories.</article>
+            </div>
+          </div>
         </section>
       </main>
     </div>
