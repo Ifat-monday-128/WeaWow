@@ -39,6 +39,7 @@
 html {
   width: 100%;
   min-height: 100%;
+  overflow-x: hidden;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -87,6 +88,7 @@ button {
   position: relative;
   z-index: 2;
   width: min(1220px, 100%);
+  max-width: 100%;
   margin: 0 auto;
   padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
@@ -494,6 +496,7 @@ button {
 
 .section-card,
 .map-card {
+  min-width: 0;
   padding: 18px;
 }
 
@@ -517,9 +520,15 @@ button {
   grid-auto-flow: column;
   grid-auto-columns: minmax(96px, 112px);
   gap: 10px;
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   padding-bottom: 5px;
+  overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
 }
 
 .moon-card {
